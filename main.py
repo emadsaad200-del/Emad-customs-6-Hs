@@ -25,8 +25,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     res = search_data(text)
-    if res is None or res.empty:
-        await update.message.reply_text(f"🔍 {text}\nالبوت شغال - هنضيف ملف البيانات بعدين")
+      if res is None or res.empty:
+        await update.message.reply_text(f"Search: {text} - Bot is working")
+        return
         return
     reply = ""
     for _, row in res.iterrows():
