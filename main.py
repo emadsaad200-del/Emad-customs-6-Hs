@@ -5,9 +5,8 @@ import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ===== الإعدادات - تم تظبيطها ليك =====
 TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-ADMIN_ID = 1280808746  # الأدمن - Emad
+ADMIN_ID = 1280808746
 
 ALLOWED_FILE = "allowed_users.json"
 PENDING_FILE = "pending_users.json"
@@ -43,41 +42,47 @@ for _, row in df.iterrows():
     try:
         code = str(row.iloc[0]).strip()
         desc = str(row.iloc[1]).strip() if len(row) > 1 else ""
-        if not code or code == 'nan': continue
+        if not code or code == 'nan':
+            continue
         clean = re.sub(r'[^0-9]', '', code)
-        items.append({'code': code, 'desc': desc, 'clean': clean, 'search': f"{desc} {code}".lower()})
-    except: continue
+        items.append({'code': code, 'desc': desc, 'clean': clean})
+    except:
+        continue
 
 print(f"Loaded {len(items)} items - FINAL FIXED PRIVATE")
 print(f"Token exists: {TOKEN is not None}")
-print(f"Admin ID: {ADMIN_ID}")
 
 def is_allowed(user_id):
     return user_id in allowed_users or user_id == ADMIN_ID
 
-async def request_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def request_approval(update, context):
     user = update.effective_user
     user_id = user.id
     if is_allowed(user_id):
         return True
     if str(user_id) in pending_users:
-        await update.message.reply_text("⏳ طلبك قيد المراجعة، انتظر موافقة الأدمن.")
+        await update.message.reply_text("⏳ طلبك قيد المراجعة")
         return False
     pending_users[str(user_id)] = {"name": user.full_name, "username": user.username}
     save_json(PENDING_FILE, pending_users)
-    await update.message.reply_text("🔒 البوت خاص.\nتم إرسال طلبك للأدمن، سيتم تفعيلك قريباً.")
+    await update.message.reply_text("🔒 البوت خاص. تم ارسال طلبك للادمن.")
     keyboard = [[InlineKeyboardButton("✅ موافقة", callback_data=f"approve_{user_id}"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}")]]
     try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔔 طلب استخدام جديد:\n👤 {user.full_name}\n🆔 {user_id}\n🔗 @{user.username}", reply_markup=InlineKeyboardMarkup(keyboard))
-    except: pass
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔔 طلب جديد:\n👤 {user.full_name}\n🆔 {user_id}\n@{user.username}", reply_markup=InlineKeyboardMarkup(keyboard))
+    except:
+        pass
     return False
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await request_approval(update, context): return
-    await update.message.reply_text("أهلاً بيك في بوت التعريفة الجمركية ✅\nابعت كود البند مثل 73-02-10-00-00")
+async def start(update, context):
+    allowed = await request_approval(update, context)
+    if not allowed:
+        return
+    await update.message.reply_text("أهلا بيك ✅\nابعت كود البند")
 
-async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await request_approval(update, context): return
+async def handle_code(update, context):
+    allowed = await request_approval(update, context)
+    if not allowed:
+        return
     text = update.message.text.strip()
     clean_input = re.sub(r'[^0-9]', '', text)
     if not clean_input:
@@ -93,12 +98,12 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     await update.message.reply_text("❌ البند غير موجود")
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_callback(update, context):
     query = update.callback_query
     await query.answer()
     data = query.data
     if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ أنت لست الأدمن")
+        await query.edit_message_text("❌ انت لست الادمن")
         return
     if data.startswith("approve_"):
         uid = int(data.split("_")[1])
@@ -108,17 +113,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_json(PENDING_FILE, pending_users)
         await query.edit_message_text(f"✅ تمت الموافقة على {uid}")
         try:
-            await context.bot.send_message(chat_id=uid, text="✅ تمت الموافقة! يمكنك الآن استخدام البوت.\nابعت /start")
-        except: pass
+            await context.bot.send_message(chat_id=uid, text="✅ تمت الموافقة! ابعت /start")
+        except:
+            pass
     elif data.startswith("reject_"):
         uid = data.split("_")[1]
         pending_users.pop(uid, None)
         save_json(PENDING_FILE, pending_users)
         await query.edit_message_text(f"❌ تم رفض {uid}")
 
-async def admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    await update.message.reply_text(f"✅ المصرح لهم: {list(allowed_users)}\n⏳ المنتظرين: {pending_users}")
+async def admin_list(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await update.message.reply_text(f"المصرح لهم: {list(allowed_users)}")
 
 if TOKEN:
-   
+    print("Bot polling started...")
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("users", admin_list))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+    app.run_polling()
