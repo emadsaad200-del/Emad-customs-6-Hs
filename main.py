@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -12,14 +11,6 @@ ALLOWED_FILE = "allowed_users.json"
 PENDING_FILE = "pending_users.json"
 
 print("Starting Bot...")
-print("Loading EXLL.xlsx ...")
-
-try:
-    df = pd.read_excel("EXLL.xlsx")
-    print(f"File loaded: {len(df)} rows")
-except Exception as e:
-    print(f"Error loading: {e}")
-    df = pd.DataFrame()
 
 def load_json(file, default):
     if os.path.exists(file):
@@ -37,101 +28,108 @@ def save_json(file, data):
 allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
 pending_users = load_json(PENDING_FILE, {})
 
-items = []
-for _, row in df.iterrows():
-    try:
-        code = str(row.iloc[0]).strip()
-        desc = str(row.iloc[1]).strip() if len(row) > 1 else ""
-        if not code or code == 'nan':
-            continue
-        clean = re.sub(r'[^0-9]', '', code)
-        items.append({'code': code, 'desc': desc, 'clean': clean})
-    except:
-        continue
+def has_arabic(s):
+    for c in s:
+        if '\u0600' <= c <= '\u06FF':
+            return True
+    return False
 
-print(f"Loaded {len(items)} items - FINAL FIXED PRIVATE")
+def is_hs_code(s):
+    t = s.strip()
+    if not t:
+        return False
+    cleaned = t.replace('.','').replace(' ','')
+    if not cleaned.isdigit():
+        return False
+    if len(cleaned) <2 or len(cleaned) >8:
+        return False
+    return True
+
+def clean_desc(text):
+    if not text:
+        return ""
+    t = text.strip()
+    if t.startswith('– ') or t.startswith('- '):
+        t = t[2:].strip()
+    if t.startswith('ر '):
+        t = t[2:].strip()
+    reps = {
+        'رير مشربة': 'غير مشربة',
+        'ريرها': 'غيرها',
+        'رير': 'غير',
+        'زجععاج': 'زجاج',
+        'متحصععل': 'متحصل',
+        'عععليه': 'عليه',
+        'التععويم': 'التعويم',
+        'مجلعو': 'مجلو',
+        'معصقول': 'مصقول',
+        'الوجعه': 'الوجه',
+        'مثعل': 'مثل',
+        'المعوفرات': 'الموفرات',
+        'بطريقعة': 'بطريقة',
+        'أخعرى': 'أخرى',
+        'حيعععوانععات': 'حيوانات',
+        'أجزء': 'أجزاء',
+    }
+    for old,new in reps.items():
+        t = t.replace(old, new)
+    # شيل الحروف المكررة من الـ OCR
+    res = ""
+    prev = ""
+    cnt = 0
+    for ch in t:
+        if ch == prev and '\u0600' <= ch <= '\u06FF':
+            cnt += 1
+            if cnt >= 2:
+                continue
+        else:
+            cnt = 0
+        res += ch
+        prev = ch
+    return ' '.join(res.split())
+
+def find_code_and_desc(row):
+    code = None
+    for val in reversed(list(row)):
+        s = str(val).strip()
+        if s == 'nan' or s == '': continue
+        if is_hs_code(s):
+            if len(s.replace('.','')) == 1: continue
+            code = s
+            break
+    longest = ""
+    for val in row:
+        s = str(val).strip()
+        if s == 'nan' or s == '': continue
+        if has_arabic(s) and len(s) > len(longest) and len(s) > 5:
+            longest = s
+    return code, longest
+
+print("Loading EXLL.xlsx ...")
+df = pd.read_excel("EXLL.xlsx", header=None)
+items = []
+for idx in range(len(df)):
+    row = df.iloc[idx]
+    c,d = find_code_and_desc(row)
+    if c is None or d == "": continue
+    if len(d) > 400: continue
+    if "جمهورية مصر" in d or "وزارة المالية" in d or "بالقرار الجمهورى" in d: continue
+    if c == '2007': continue
+    cd = clean_desc(d)
+    items.append({'code': c, 'desc': cd, 'clean': c.replace('.','')})
+
+print(f"Loaded {len(items)} valid items - CLEANED")
 print(f"Token exists: {TOKEN is not None}")
 
-def is_allowed(user_id):
-    return user_id in allowed_users or user_id == ADMIN_ID
+def is_allowed(uid): return uid in allowed_users or uid == ADMIN_ID
 
 async def request_approval(update, context):
     user = update.effective_user
-    user_id = user.id
-    if is_allowed(user_id):
-        return True
-    if str(user_id) in pending_users:
+    if is_allowed(user.id): return True
+    if str(user.id) in pending_users:
         await update.message.reply_text("⏳ طلبك قيد المراجعة")
         return False
-    pending_users[str(user_id)] = {"name": user.full_name, "username": user.username}
+    pending_users[str(user.id)] = {"name": user.full_name, "username": user.username}
     save_json(PENDING_FILE, pending_users)
     await update.message.reply_text("🔒 البوت خاص. تم ارسال طلبك للادمن.")
-    keyboard = [[InlineKeyboardButton("✅ موافقة", callback_data=f"approve_{user_id}"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}")]]
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔔 طلب جديد:\n👤 {user.full_name}\n🆔 {user_id}\n@{user.username}", reply_markup=InlineKeyboardMarkup(keyboard))
-    except:
-        pass
-    return False
-
-async def start(update, context):
-    allowed = await request_approval(update, context)
-    if not allowed:
-        return
-    await update.message.reply_text("أهلا بيك ✅\nابعت كود البند")
-
-async def handle_code(update, context):
-    allowed = await request_approval(update, context)
-    if not allowed:
-        return
-    text = update.message.text.strip()
-    clean_input = re.sub(r'[^0-9]', '', text)
-    if not clean_input:
-        await update.message.reply_text("ابعت كود صحيح")
-        return
-    for item in items:
-        if item['clean'] == clean_input or item['code'] == text:
-            await update.message.reply_text(f"📋 البند: {item['code']}\n📝 {item['desc']}")
-            return
-    for item in items:
-        if clean_input in item['clean']:
-            await update.message.reply_text(f"📋 البند: {item['code']}\n📝 {item['desc']}")
-            return
-    await update.message.reply_text("❌ البند غير موجود")
-
-async def button_callback(update, context):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ انت لست الادمن")
-        return
-    if data.startswith("approve_"):
-        uid = int(data.split("_")[1])
-        allowed_users.add(uid)
-        save_json(ALLOWED_FILE, list(allowed_users))
-        pending_users.pop(str(uid), None)
-        save_json(PENDING_FILE, pending_users)
-        await query.edit_message_text(f"✅ تمت الموافقة على {uid}")
-        try:
-            await context.bot.send_message(chat_id=uid, text="✅ تمت الموافقة! ابعت /start")
-        except:
-            pass
-    elif data.startswith("reject_"):
-        uid = data.split("_")[1]
-        pending_users.pop(uid, None)
-        save_json(PENDING_FILE, pending_users)
-        await query.edit_message_text(f"❌ تم رفض {uid}")
-
-async def admin_list(update, context):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    await update.message.reply_text(f"المصرح لهم: {list(allowed_users)}")
-
-if TOKEN:
-    print("Bot polling started...")
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("users", admin_list))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-    app.run_polling()
+    kb = [[InlineKeyboardButton("
