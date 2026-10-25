@@ -1,149 +1,124 @@
-import os, pandas as pd
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import os
+import json
+import re
+import pandas as pd
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+
+# ===== الإعدادات - تم تظبيطها ليك =====
+TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+ADMIN_ID = 1280808746  # الأدمن - Emad
+
+ALLOWED_FILE = "allowed_users.json"
+PENDING_FILE = "pending_users.json"
 
 print("Starting Bot...")
+print("Loading EXLL.xlsx ...")
 
-# تحميل الملف - يحاول كل الأماكن
-file_path = "EXLL.xlsx"
-if not os.path.exists(file_path):
-    file_path = "./EXLL.xlsx"
-
-print(f"Loading {file_path} ...")
 try:
-    xls = pd.ExcelFile(file_path)
-    df = pd.read_excel(xls, sheet_name=0, dtype=str, header=None).fillna("")
+    df = pd.read_excel("EXLL.xlsx")
     print(f"File loaded: {len(df)} rows")
 except Exception as e:
-    print(f"ERROR loading file: {e}")
+    print(f"Error loading: {e}")
     df = pd.DataFrame()
 
-# قاموس تصليح العربي
-FIX = {
-    "منلجات": "منتجات",
-    "المسم": "القسم",
-    "اليصل": "الفصل",
-    "الممسم": "القسم",
-    "رير ": "غير ",
-    "ولاداخلة": "ولا داخلة",
-    "نفايا": "نفايات",
-    "الأرذية": "الأغذية",
-    "أرذية": "أغذية",
-    "رذائية": "غذائية",
-    "الممشش": "التبن",
-    "القلفعونية": "القلفونية",
-    "اللعرييمة": "التعريفة",
-    "الجمركيمة": "الجمركية",
-    "اليئة": "الفئة",
-}
+def load_json(file, default):
+    if os.path.exists(file):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return default
+    return default
 
-def fix_text(t):
-    for k,v in FIX.items():
-        t = t.replace(k,v)
-    # شيل حرف مقصوص في الاول زي "ر "
-    if len(t)>2 and t[1]==' ' and t[0] in 'رع':
-        t = t[2:]
-    return t.strip()
+def save_json(file, data):
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
 
-data=[]
-for i in range(len(df)):
-    row = [str(c).strip() for c in df.iloc[i].tolist() if str(c).strip() and str(c).strip()!='nan']
-    if not row: continue
-    text = " ".join(row)
-    if len(text)<15: continue
-    if "القرار الجمهورى" in text and len(text)<100: continue
-    if "جمهورية مصر" in text and len(text)<60: continue
-    
-    # دور على كود
-    code=None
-    code_idx=-1
-    for idx,c in enumerate(row):
-        cc=c.strip(".,;:()[] ")
-        if "." in cc:
-            parts=cc.split(".")
-            if len(parts)==2 and parts[0].isdigit() and parts[1].isdigit():
-                if 1<=len(parts[0])<=4 and 1<=len(parts[1])<=4:
-                    code=cc
-                    code_idx=idx
-                    break
-    
-    if not code: continue
-    
-    # الوصف
-    best=""
-    best_score=0
-    for idx,c in enumerate(row):
-        if idx==code_idx: continue
-        if len(c)<15: continue
-        ar=sum(1 for ch in c if '\u0600' <= ch <= '\u06FF')
-        if ar>best_score and ar>8:
-            best_score=ar
-            best=c
-    
-    if not best: continue
-    best=fix_text(best)
-    
-    data.append({
-        "code": code,
-        "desc": best,
-        "clean": "".join([ch for ch in code if ch.isdigit()]),
-        "search": fix_text(text).lower()
-    })
+allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
+pending_users = load_json(PENDING_FILE, {})
 
-# مكرر
-uniq={}
-for d in data:
-    k=d["code"]+"|"+d["desc"][:40]
-    uniq[k]=d
-data=list(uniq.values())
+items = []
+for _, row in df.iterrows():
+    try:
+        code = str(row.iloc[0]).strip()
+        desc = str(row.iloc[1]).strip() if len(row) > 1 else ""
+        if not code or code == 'nan': continue
+        clean = re.sub(r'[^0-9]', '', code)
+        items.append({'code': code, 'desc': desc, 'clean': clean, 'search': f"{desc} {code}".lower()})
+    except: continue
 
-print(f"Loaded {len(data)} items - FINAL FIXED")
-for d in data[:2]:
-    print(d)
+print(f"Loaded {len(items)} items - FINAL FIXED PRIVATE")
+print(f"Token exists: {TOKEN is not None}")
+print(f"Admin ID: {ADMIN_ID}")
 
-def find(q):
-    # يفهم 73-02-10-00-00
-    q = q.replace("-", ".").replace("–", ".").replace("_", ".")
-    q = fix_text(q)
-    qd = "".join([ch for ch in q if ch.isdigit()])
-    words = [w for w in q.lower().split() if len(w)>=2]
-    scored=[]
-    for x in data:
-        s=0
-        if qd and qd in x["clean"]:
-            s+=100
-            if x["clean"]==qd: s+=150
-            if x["clean"].startswith(qd[:4]): s+=50
-        for w in words:
-            if w in x["search"]:
-                s+=30
-        if s>0:
-            scored.append((s,x))
-    scored.sort(key=lambda a:a[0], reverse=True)
-    return [x for _,x in scored[:5]]
+def is_allowed(user_id):
+    return user_id in allowed_users or user_id == ADMIN_ID
 
-TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-print(f"Token exists: {bool(TOKEN)}")
+async def request_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    if is_allowed(user_id):
+        return True
+    if str(user_id) in pending_users:
+        await update.message.reply_text("⏳ طلبك قيد المراجعة، انتظر موافقة الأدمن.")
+        return False
+    pending_users[str(user_id)] = {"name": user.full_name, "username": user.username}
+    save_json(PENDING_FILE, pending_users)
+    await update.message.reply_text("🔒 البوت خاص.\nتم إرسال طلبك للأدمن، سيتم تفعيلك قريباً.")
+    keyboard = [[InlineKeyboardButton("✅ موافقة", callback_data=f"approve_{user_id}"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}")]]
+    try:
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"🔔 طلب استخدام جديد:\n👤 {user.full_name}\n🆔 {user_id}\n🔗 @{user.username}", reply_markup=InlineKeyboardMarkup(keyboard))
+    except: pass
+    return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"✅ Ale Emad Customs شغال\n📦 {len(data)} بند\n\nجرب:\n73-02-10-00-00\n1.01\nخيول\nقضبان")
+    if not await request_approval(update, context): return
+    await update.message.reply_text("أهلاً بيك في بوت التعريفة الجمركية ✅\nابعت كود البند مثل 73-02-10-00-00")
 
-async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = update.message.text.strip()
-    if "/start" in txt.lower() or txt.lower()=="start":
-        return await start(update, context)
-    res = find(txt)
-    if not res:
-        await update.message.reply_text(f"❌ لم أجد '{txt}'\nجرب كود زي 730210 أو 1.01")
+async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await request_approval(update, context): return
+    text = update.message.text.strip()
+    clean_input = re.sub(r'[^0-9]', '', text)
+    if not clean_input:
+        await update.message.reply_text("ابعت كود صحيح")
         return
-    for x in res:
-        await update.message.reply_text(f"📋 البند: {x['code']}\n\n📝 {x['desc']}\n\n🔢 الكود النظيف: {x['clean']}")
+    for item in items:
+        if item['clean'] == clean_input or item['code'] == text:
+            await update.message.reply_text(f"📋 البند: {item['code']}\n📝 {item['desc']}")
+            return
+    for item in items:
+        if clean_input in item['clean']:
+            await update.message.reply_text(f"📋 البند: {item['code']}\n📝 {item['desc']}")
+            return
+    await update.message.reply_text("❌ البند غير موجود")
 
-if not TOKEN:
-    print("ERROR: No BOT_TOKEN in env!")
-else:
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
-    print("Bot polling started...")
-    app.run_polling()
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if query.from_user.id != ADMIN_ID:
+        await query.edit_message_text("❌ أنت لست الأدمن")
+        return
+    if data.startswith("approve_"):
+        uid = int(data.split("_")[1])
+        allowed_users.add(uid)
+        save_json(ALLOWED_FILE, list(allowed_users))
+        pending_users.pop(str(uid), None)
+        save_json(PENDING_FILE, pending_users)
+        await query.edit_message_text(f"✅ تمت الموافقة على {uid}")
+        try:
+            await context.bot.send_message(chat_id=uid, text="✅ تمت الموافقة! يمكنك الآن استخدام البوت.\nابعت /start")
+        except: pass
+    elif data.startswith("reject_"):
+        uid = data.split("_")[1]
+        pending_users.pop(uid, None)
+        save_json(PENDING_FILE, pending_users)
+        await query.edit_message_text(f"❌ تم رفض {uid}")
+
+async def admin_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    await update.message.reply_text(f"✅ المصرح لهم: {list(allowed_users)}\n⏳ المنتظرين: {pending_users}")
+
+if TOKEN:
+   
