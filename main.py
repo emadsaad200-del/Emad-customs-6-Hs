@@ -21,9 +21,7 @@ def search_data(q):
         return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-     await update.message.reply_text(
-        "Welcome to Alex Emad Customs 🌟\nSend HS code or description"
-    )
+    await update.message.reply_text("Welcome to Alex Emad Customs - Send HS code")  
 async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     res = search_data(text)
