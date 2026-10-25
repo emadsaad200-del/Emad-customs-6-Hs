@@ -21,7 +21,8 @@ def search_data(q):
         return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ أهلا! بوت التعريفة الجمركية شغال")
+    await update.message.reply_text("✅ "مرحبا بك في Alex Emad Customs 🌟
+اكتب وصف البضاعة او رقم البند") 
 
 async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
