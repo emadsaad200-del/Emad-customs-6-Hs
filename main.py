@@ -4,11 +4,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
-
-try:
-    df = pd.read_excel("hs_all.xlsx")
-except:
-    df = pd.DataFrame()
+df = pd.DataFrame()
 
 def search_data(q):
     if df.empty:
@@ -21,13 +17,13 @@ def search_data(q):
         return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to Alex Emad Customs - Send HS code")  
+    await update.message.reply_text("Welcome to Alex Emad Customs - Send HS code")
+
 async def handle_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     res = search_data(text)
-      if res is None or res.empty:
-        await update.message.reply_text(f"Search: {text} - Bot is working")
-        return
+    if res is None or res.empty:
+        await update.message.reply_text(f"Search: {text} - Bot is working, will add data file later")
         return
     reply = ""
     for _, row in res.iterrows():
