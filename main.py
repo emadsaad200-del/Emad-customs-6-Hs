@@ -36,116 +36,142 @@ def has_arabic(s):
 
 def is_hs_code(s):
     t = s.strip()
-    if not t:
-        return False
+    if not t: return False
     cleaned = t.replace('.','').replace(' ','')
-    if not cleaned.isdigit():
-        return False
-    if len(cleaned) < 2 or len(cleaned) > 8:
-        return False
+    if not cleaned.isdigit(): return False
+    if len(cleaned) < 2 or len(cleaned) > 12: return False
     return True
 
 def clean_desc(text):
-    if not text:
-        return ""
+    if not text: return ""
     t = text.strip()
-    t = t.replace('رير مشربة', 'غير مشربة')
-    t = t.replace('ريرها', 'غيرها')
-    t = t.replace('زجععاج', 'زجاج')
-    t = t.replace('مجلعو', 'مجلو')
-    t = t.replace('معصقول', 'مصقول')
-    t = t.replace('ـ', '')
+    t = t.replace('رير مشربة','غير مشربة').replace('ريرها','غيرها')
+    t = t.replace('زجععاج','زجاج').replace('ـ','')
     return ' '.join(t.split())
 
 def find_code_and_desc(row):
     code = None
     for val in reversed(list(row)):
         s = str(val).strip()
-        if s == 'nan' or s == '':
-            continue
+        if s == 'nan' or s == '': continue
         if is_hs_code(s):
-            if len(s.replace('.','')) == 1:
-                continue
+            if len(s.replace('.','')) == 1: continue
             code = s
             break
     longest = ""
     for val in row:
         s = str(val).strip()
-        if s == 'nan' or s == '':
-            continue
+        if s == 'nan' or s == '': continue
         if has_arabic(s) and len(s) > len(longest) and len(s) > 5:
             longest = s
     return code, longest
 
+# === Load EXLL ===
 print("Loading EXLL.xlsx ...", flush=True)
 df = pd.read_excel("EXLL.xlsx", header=None)
 items = []
 for idx in range(len(df)):
     row = df.iloc[idx]
     c,d = find_code_and_desc(row)
-    if c is None or d == "":
-        continue
-    if len(d) > 400:
-        continue
-    if "جمهورية مصر" in d or "وزارة المالية" in d:
-        continue
-    if c == '2007':
-        continue
+    if c is None or d == "": continue
+    if len(d) > 400: continue
+    if "جمهورية مصر" in d or "وزارة المالية" in d: continue
+    if c == '2007': continue
     cd = clean_desc(d)
-    items.append({'code': c, 'desc': cd, 'clean': c.replace('.','')})
+    items.append({'code': c, 'desc': cd, 'clean': c.replace('.','').replace(' ','')})
 
-print(f"Loaded {len(items)} items", flush=True)
+print(f"Loaded {len(items)} EXLL items", flush=True)
+
+# === Load Tariff ===
+tariff_items = []
+tariff_map = {}
+try:
+    tariff_file = None
+    for name in ["Tariff.xlsx", "Tariff.xlsx.csv", "tariff.xlsx", "Tariff.csv"]:
+        if os.path.exists(name):
+            tariff_file = name
+            break
+    if tariff_file:
+        print(f"Loading {tariff_file} ...", flush=True)
+        df_t = pd.read_excel(tariff_file, dtype=str, header=None)
+        start = 1 if "رمز النظام" in str(df_t.iloc[0,0]) else 0
+        for i in range(start, len(df_t)):
+            row = df_t.iloc[i]
+            try:
+                code_raw = str(row.iloc[0]).strip()
+                if code_raw == 'nan' or code_raw == '': continue
+                code_clean = code_raw.replace('.','').strip()
+                if not code_clean.isdigit(): continue
+                arabic = str(row.iloc[1]) if len(row) > 1 else ""
+                duty = str(row.iloc[3]) if len(row) > 3 else ""
+                proc = str(row.iloc[4]) if len(row) > 4 else ""
+                if duty == 'nan': duty = ""
+                if proc == 'nan': proc = ""
+                item = {'code': code_raw, 'clean': code_clean, 'desc': arabic, 'duty': duty, 'proc': proc}
+                tariff_items.append(item)
+                tariff_map[code_clean] = duty
+            except:
+                continue
+        print(f"Loaded {len(tariff_items)} Tariff items", flush=True)
+    else:
+        print("No Tariff file found", flush=True)
+except Exception as e:
+    print(f"Tariff load error: {e}", flush=True)
 
 def is_allowed(uid):
     return uid in allowed_users or uid == ADMIN_ID
 
-def search_items(query):
+def search_combined(query):
     query = query.strip()
-    digits = "".join([ch for ch in query if ch.isdigit()])
     q_lower = query.lower()
+    digits = "".join([ch for ch in query if ch.isdigit()])
     
-    results = []
-    
-    # 1 - لو بعت كود رقمي - بحث دقيق بالكود
     if digits and len(digits) >= 2:
-        for item in items:
-            if item["clean"] == digits:
-                return [item]  # مطابق تماما
-        for item in items:
-            if item["clean"].startswith(digits) or digits.startswith(item["clean"]):
-                results.append(item)
-        if results:
-            return results[:10]
-    
-    # 2 - بحث بالاسم / الكلمة (عربي)
-    # شيل المسافات الزيادة
-    q_words = q_lower.split()
-    q_words = [w for w in q_words if len(w) > 1]
+        for it in items:
+            if it["clean"] == digits:
+                duties = [t for t in tariff_items if t["clean"].startswith(digits)]
+                return [it], duties[:5]
+        matched_tariff = [t for t in tariff_items if t["clean"] == digits]
+        if matched_tariff:
+            parent = None
+            for it in items:
+                if digits.startswith(it["clean"]) or it["clean"].startswith(digits[:4]):
+                    parent = it
+                    break
+            return [parent] if parent else [], matched_tariff[:5]
+        
+        ex_results = [it for it in items if it["clean"].startswith(digits) or digits.startswith(it["clean"])]
+        tar_results = [t for t in tariff_items if t["clean"].startswith(digits)]
+        if ex_results or tar_results:
+            return ex_results[:5], tar_results[:5]
+
+    q_words = [w for w in q_lower.split() if len(w) > 1]
     if not q_words:
-        return []
+        return [], []
     
-    scored = []
-    for item in items:
-        desc_lower = item["desc"].lower()
-        score = 0
-        # لو الجملة كلها موجودة
-        if q_lower in desc_lower:
-            score += 100
-        # عدد الكلمات المتطابقة
+    scored_ex = []
+    for it in items:
+        dl = it["desc"].lower()
+        score = 100 if q_lower in dl else 0
         for w in q_words:
-            if w in desc_lower:
-                score += 10
-        if score > 0:
-            scored.append((score, item))
+            if w in dl: score += 10
+        if score > 0: scored_ex.append((score, it))
+    scored_ex.sort(key=lambda x: x[0], reverse=True)
     
-    # رتب بالاعلى
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [x[1] for x in scored[:10]]
+    scored_tar = []
+    for it in tariff_items:
+        dl = str(it["desc"]).lower()
+        score = 100 if q_lower in dl else 0
+        for w in q_words:
+            if w in dl: score += 10
+        if score > 0: scored_tar.append((score, it))
+    scored_tar.sort(key=lambda x: x[0], reverse=True)
+    
+    return [x[1] for x in scored_ex[:7]], [x[1] for x in scored_tar[:7]]
 
 async def request_approval(update, context):
     user = update.effective_user
-    if is_allowed(user.id):
-        return True
+    if is_allowed(user.id): return True
     if str(user.id) in pending_users:
         await update.message.reply_text("طلبك قيد المراجعة")
         return False
@@ -157,43 +183,48 @@ async def request_approval(update, context):
     kb = InlineKeyboardMarkup([[btn1, btn2]])
     try:
         await context.bot.send_message(chat_id=ADMIN_ID, text="طلب جديد: " + user.full_name + " ID:" + str(user.id), reply_markup=kb)
-    except:
-        pass
+    except: pass
     return False
 
 async def start(update, context):
     ok = await request_approval(update, context)
-    if not ok:
-        return
-    await update.message.reply_text("اهلا بيك - تقدر تبحث ب:\n- الكود: 4405 - 5506 - 84.03\n- الكلمة: زجاج - خشب - نسيج - قطن\n- جزء من الوصف")
+    if not ok: return
+    await update.message.reply_text("اهلا بيك\nابحث ب:\n- الكود: 5506 - 0101\n- الاسم: زجاج - خشب - خيول\nالبوت هيجيب الوصف + التعريفة مع بعض")
 
 async def handle_search(update, context):
     ok = await request_approval(update, context)
-    if not ok:
-        return
+    if not ok: return
     text = update.message.text.strip()
     if len(text) < 2:
         await update.message.reply_text("اكتب كلمة اطول")
         return
     
-    found = search_items(text)
+    ex_found, tar_found = search_combined(text)
     
-    if not found:
+    if not ex_found and not tar_found:
         await update.message.reply_text("مفيش نتائج لـ: " + text)
         return
     
-    # لو نتيجة واحدة اعرضها كاملة
-    if len(found) == 1:
-        item = found[0]
-        await update.message.reply_text("البند: " + item['code'] + "\n" + item['desc'])
-        return
+    msg = ""
+    if ex_found:
+        it = ex_found[0]
+        msg += "📦 البند: " + it['code'] + "\n" + it['desc'] + "\n\n"
     
-    # لو كذا نتيجة اعرضهم مختصرين
-    msg = "لقيت " + str(len(found)) + " نتائج لـ " + text + ":\n\n"
-    for i, item in enumerate(found, 1):
-        short = item['desc'][:70] + "..." if len(item['desc']) > 70 else item['desc']
-        msg += str(i) + "- [" + item['code'] + "] " + short + "\n\n"
-    msg += "ابعت الكود اللي عايزه بالظبط عشان اجيبلك الوصف الكامل"
+    if tar_found:
+        msg += "💰 التعريفة:\n"
+        for t in tar_found[:5]:
+            duty = t['duty'] if t['duty'] else "غير محدد"
+            msg += "- " + t['code'] + " : " + duty + " | " + str(t['desc'])[:60] + "\n"
+    
+    if len(ex_found) > 1:
+        msg += "\n🔍 نتائج مشابهة:\n"
+        for it in ex_found[1:4]:
+            short = it['desc'][:50]
+            msg += "- [" + it['code'] + "] " + short + "\n"
+    
+    if len(msg) > 4000:
+        msg = msg[:4000]
+    
     await update.message.reply_text(msg)
 
 async def button_callback(update, context):
@@ -210,10 +241,8 @@ async def button_callback(update, context):
         pending_users.pop(str(uid), None)
         save_json(PENDING_FILE, pending_users)
         await q.edit_message_text("تمت الموافقة على " + str(uid))
-        try:
-            await context.bot.send_message(chat_id=uid, text="تمت الموافقة! ابعت /start")
-        except:
-            pass
+        try: await context.bot.send_message(chat_id=uid, text="تمت الموافقة! ابعت /start")
+        except: pass
     else:
         uid = data.split("_")[1]
         pending_users.pop(uid, None)
