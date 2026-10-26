@@ -99,6 +99,49 @@ print(f"Loaded {len(items)} items", flush=True)
 def is_allowed(uid):
     return uid in allowed_users or uid == ADMIN_ID
 
+def search_items(query):
+    query = query.strip()
+    digits = "".join([ch for ch in query if ch.isdigit()])
+    q_lower = query.lower()
+    
+    results = []
+    
+    # 1 - لو بعت كود رقمي - بحث دقيق بالكود
+    if digits and len(digits) >= 2:
+        for item in items:
+            if item["clean"] == digits:
+                return [item]  # مطابق تماما
+        for item in items:
+            if item["clean"].startswith(digits) or digits.startswith(item["clean"]):
+                results.append(item)
+        if results:
+            return results[:10]
+    
+    # 2 - بحث بالاسم / الكلمة (عربي)
+    # شيل المسافات الزيادة
+    q_words = q_lower.split()
+    q_words = [w for w in q_words if len(w) > 1]
+    if not q_words:
+        return []
+    
+    scored = []
+    for item in items:
+        desc_lower = item["desc"].lower()
+        score = 0
+        # لو الجملة كلها موجودة
+        if q_lower in desc_lower:
+            score += 100
+        # عدد الكلمات المتطابقة
+        for w in q_words:
+            if w in desc_lower:
+                score += 10
+        if score > 0:
+            scored.append((score, item))
+    
+    # رتب بالاعلى
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [x[1] for x in scored[:10]]
+
 async def request_approval(update, context):
     user = update.effective_user
     if is_allowed(user.id):
@@ -122,26 +165,36 @@ async def start(update, context):
     ok = await request_approval(update, context)
     if not ok:
         return
-    await update.message.reply_text("اهلا بيك - ابعت كود البند مثل 4405 او 5506")
+    await update.message.reply_text("اهلا بيك - تقدر تبحث ب:\n- الكود: 4405 - 5506 - 84.03\n- الكلمة: زجاج - خشب - نسيج - قطن\n- جزء من الوصف")
 
-async def handle_code(update, context):
+async def handle_search(update, context):
     ok = await request_approval(update, context)
     if not ok:
         return
     text = update.message.text.strip()
-    digits = "".join([ch for ch in text if ch.isdigit()])
-    if not digits:
-        await update.message.reply_text("ابعت كود صحيح")
+    if len(text) < 2:
+        await update.message.reply_text("اكتب كلمة اطول")
         return
-    for item in items:
-        if item["clean"] == digits:
-            await update.message.reply_text("البند: " + item['code'] + "\n" + item['desc'])
-            return
-    for item in items:
-        if item["clean"].startswith(digits) or digits.startswith(item["clean"]):
-            await update.message.reply_text("البند: " + item['code'] + "\n" + item['desc'])
-            return
-    await update.message.reply_text("البند غير موجود")
+    
+    found = search_items(text)
+    
+    if not found:
+        await update.message.reply_text("مفيش نتائج لـ: " + text)
+        return
+    
+    # لو نتيجة واحدة اعرضها كاملة
+    if len(found) == 1:
+        item = found[0]
+        await update.message.reply_text("البند: " + item['code'] + "\n" + item['desc'])
+        return
+    
+    # لو كذا نتيجة اعرضهم مختصرين
+    msg = "لقيت " + str(len(found)) + " نتائج لـ " + text + ":\n\n"
+    for i, item in enumerate(found, 1):
+        short = item['desc'][:70] + "..." if len(item['desc']) > 70 else item['desc']
+        msg += str(i) + "- [" + item['code'] + "] " + short + "\n\n"
+    msg += "ابعت الكود اللي عايزه بالظبط عشان اجيبلك الوصف الكامل"
+    await update.message.reply_text(msg)
 
 async def button_callback(update, context):
     q = update.callback_query
@@ -172,5 +225,5 @@ if TOKEN:
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
     app.run_polling()
