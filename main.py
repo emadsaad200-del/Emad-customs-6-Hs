@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
@@ -43,10 +44,34 @@ def is_hs_code(s):
     return True
 
 def clean_desc(text):
-    if not text: return ""
-    t = text.strip()
-    t = t.replace('رير مشربة','غير مشربة').replace('ريرها','غيرها')
-    t = t.replace('زجععاج','زجاج').replace('ـ','')
+    if not text: 
+        return ""
+    t = str(text).strip()
+    # شيل التطويلة
+    t = t.replace('ـ','')
+    
+    # === إصلاحات حرف العين والغين اللي ظهرت في مثال 30.03 ===
+    # إصلاحات مباشرة من رسالتك
+    t = t.replace('مكونعين','مكونين')
+    t = t.replace('أكعثر','أكثر')
+    t = t.replace('كعثر','كثر')
+    t = t.replace('أرلفة','أغلفة')
+    t = t.replace('الحمعل','الحمل')
+    t = t.replace('أدويعة','أدوية')
+    t = t.replace('زجععاج','زجاج').replace('زجعاج','زجاج')
+    t = t.replace('ع ع ع','').replace('ع ع','')
+    
+    # رير -> غير (بس لو كلمة لوحدها عشان ما نبوزش حرير / صغير)
+    t = re.sub(r'\bرير\b', 'غير', t)
+    t = re.sub(r'\bريرها\b', 'غيرها', t)
+    t = re.sub(r'\bرير مشربة\b', 'غير مشربة', t)
+    
+    # إصلاحات عامة للعين الزيادة: نعين في آخر الكلمة -> نين
+    # مثال: مكونعين -> مكونين (لو فات من اللي فوق)
+    t = re.sub(r'(\w)عين\b', r'\1ين', t)
+    # ويعة -> وية (أدويعة -> أدوية)
+    t = re.sub(r'ويعة\b', 'وية', t)
+    
     return ' '.join(t.split())
 
 def find_code_and_desc(row):
@@ -107,6 +132,9 @@ try:
                 proc = str(row.iloc[4]) if len(row) > 4 else ""
                 if duty == 'nan': duty = ""
                 if proc == 'nan': proc = ""
+                if arabic == 'nan': arabic = ""
+                # نضف وصف التعريفة كمان
+                arabic = clean_desc(arabic)
                 item = {'code': code_raw, 'clean': code_clean, 'desc': arabic, 'duty': duty, 'proc': proc}
                 tariff_items.append(item)
                 tariff_map[code_clean] = duty
