@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import unicodedata
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
@@ -43,36 +44,54 @@ def is_hs_code(s):
     if len(cleaned) < 2 or len(cleaned) > 12: return False
     return True
 
+# ========= التعديل الجديد - إصلاح شامل لحرف العين =========
 def clean_desc(text):
     if not text: 
         return ""
     t = str(text).strip()
-    # شيل التطويلة
+
+    # 1- توحيد شكل الحروف أولاً (أهم خطوة لحرف العين)
+    t = unicodedata.normalize('NFC', t)
+
+    # 2- شيل التطويلة بعد التوحيد مش قبله
     t = t.replace('ـ','')
-    
-    # === إصلاحات حرف العين والغين اللي ظهرت في مثال 30.03 ===
-    # إصلاحات مباشرة من رسالتك
-    t = t.replace('مكونعين','مكونين')
-    t = t.replace('أكعثر','أكثر')
-    t = t.replace('كعثر','كثر')
-    t = t.replace('أرلفة','أغلفة')
-    t = t.replace('الحمعل','الحمل')
-    t = t.replace('أدويعة','أدوية')
-    t = t.replace('زجععاج','زجاج').replace('زجعاج','زجاج')
+
+    # 3- إصلاحات حرف العين والغين - من الصورة اللي بعتها + مثال 30.03
+    # دي كانت المشكلة الأساسية عندك
+    fix_map = {
+        'إحعادات': 'إعدادات',
+        'احعادات': 'إعدادات',
+        'إحعدادات': 'إعدادات',
+        'البعرودة': 'البرودة',
+        'البعروده': 'البرودة',
+        'مععدات': 'معدات',
+        'مكونعين': 'مكونين',
+        'أكعثر': 'أكثر',
+        'كعثر': 'كثر',
+        'أرلفة': 'أغلفة',
+        'الحمعل': 'الحمل',
+        'أدويعة': 'أدوية',
+        'زجععاج': 'زجاج',
+        'زجعاج': 'زجاج',
+        'الاليات': 'الآلات',
+    }
+    for bad, good in fix_map.items():
+        t = t.replace(bad, good)
+
+    # 4- إصلاح التقطيع العام حع -> ع (ده اللي كان بيعمل إحعادات)
+    # بس نعمله بحذر عشان ما نبوزش كلمات سليمة
+    t = re.sub(r'حع', 'ع', t)
+
+    # 5- إصلاحاتك القديمة
     t = t.replace('ع ع ع','').replace('ع ع','')
-    
-    # رير -> غير (بس لو كلمة لوحدها عشان ما نبوزش حرير / صغير)
     t = re.sub(r'\bرير\b', 'غير', t)
     t = re.sub(r'\bريرها\b', 'غيرها', t)
     t = re.sub(r'\bرير مشربة\b', 'غير مشربة', t)
-    
-    # إصلاحات عامة للعين الزيادة: نعين في آخر الكلمة -> نين
-    # مثال: مكونعين -> مكونين (لو فات من اللي فوق)
     t = re.sub(r'(\w)عين\b', r'\1ين', t)
-    # ويعة -> وية (أدويعة -> أدوية)
     t = re.sub(r'ويعة\b', 'وية', t)
-    
+
     return ' '.join(t.split())
+# ========= نهاية التعديل =========
 
 def find_code_and_desc(row):
     code = None
@@ -91,7 +110,6 @@ def find_code_and_desc(row):
             longest = s
     return code, longest
 
-# === Load EXLL ===
 print("Loading EXLL.xlsx ...", flush=True)
 df = pd.read_excel("EXLL.xlsx", header=None)
 items = []
@@ -107,7 +125,6 @@ for idx in range(len(df)):
 
 print(f"Loaded {len(items)} EXLL items", flush=True)
 
-# === Load Tariff ===
 tariff_items = []
 tariff_map = {}
 try:
@@ -133,7 +150,6 @@ try:
                 if duty == 'nan': duty = ""
                 if proc == 'nan': proc = ""
                 if arabic == 'nan': arabic = ""
-                # نضف وصف التعريفة كمان
                 arabic = clean_desc(arabic)
                 item = {'code': code_raw, 'clean': code_clean, 'desc': arabic, 'duty': duty, 'proc': proc}
                 tariff_items.append(item)
@@ -150,10 +166,10 @@ def is_allowed(uid):
     return uid in allowed_users or uid == ADMIN_ID
 
 def search_combined(query):
-    query = query.strip()
+    query = clean_desc(query.strip())
     q_lower = query.lower()
     digits = "".join([ch for ch in query if ch.isdigit()])
-    
+
     if digits and len(digits) >= 2:
         for it in items:
             if it["clean"] == digits:
@@ -167,7 +183,7 @@ def search_combined(query):
                     parent = it
                     break
             return [parent] if parent else [], matched_tariff[:5]
-        
+
         ex_results = [it for it in items if it["clean"].startswith(digits) or digits.startswith(it["clean"])]
         tar_results = [t for t in tariff_items if t["clean"].startswith(digits)]
         if ex_results or tar_results:
@@ -176,7 +192,7 @@ def search_combined(query):
     q_words = [w for w in q_lower.split() if len(w) > 1]
     if not q_words:
         return [], []
-    
+
     scored_ex = []
     for it in items:
         dl = it["desc"].lower()
@@ -185,7 +201,7 @@ def search_combined(query):
             if w in dl: score += 10
         if score > 0: scored_ex.append((score, it))
     scored_ex.sort(key=lambda x: x[0], reverse=True)
-    
+
     scored_tar = []
     for it in tariff_items:
         dl = str(it["desc"]).lower()
@@ -194,7 +210,7 @@ def search_combined(query):
             if w in dl: score += 10
         if score > 0: scored_tar.append((score, it))
     scored_tar.sort(key=lambda x: x[0], reverse=True)
-    
+
     return [x[1] for x in scored_ex[:7]], [x[1] for x in scored_tar[:7]]
 
 async def request_approval(update, context):
@@ -226,34 +242,34 @@ async def handle_search(update, context):
     if len(text) < 2:
         await update.message.reply_text("اكتب كلمة اطول")
         return
-    
+
     ex_found, tar_found = search_combined(text)
-    
+
     if not ex_found and not tar_found:
         await update.message.reply_text("مفيش نتائج لـ: " + text)
         return
-    
+
     msg = ""
     if ex_found:
         it = ex_found[0]
         msg += "📦 البند: " + it['code'] + "\n" + it['desc'] + "\n\n"
-    
+
     if tar_found:
         msg += "💰 التعريفة:\n"
         for t in tar_found[:5]:
             duty = t['duty'] if t['duty'] else "غير محدد"
             msg += "- " + t['code'] + " : " + duty + " | " + str(t['desc'])[:60] + "\n"
-    
+
     if len(ex_found) > 1:
         msg += "\n🔍 نتائج مشابهة:\n"
         for it in ex_found[1:4]:
             short = it['desc'][:50]
             msg += "- [" + it['code'] + "] " + short + "\n"
-    
+
     if len(msg) > 4000:
         msg = msg[:4000]
-    
-    await update.message.reply_text(msg)
+
+    await update.message.reply_text(msg, parse_mode=None)
 
 async def button_callback(update, context):
     q = update.callback_query
@@ -275,12 +291,4 @@ async def button_callback(update, context):
         uid = data.split("_")[1]
         pending_users.pop(uid, None)
         save_json(PENDING_FILE, pending_users)
-        await q.edit_message_text("تم رفض " + uid)
-
-if TOKEN:
-    print("Bot polling started...", flush=True)
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-    app.run_polling() 
+        await q.edit_message_text
