@@ -1,18 +1,17 @@
 import os
 import json
 import re
+import gc
 import unicodedata
-import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = 1280808746
-
 ALLOWED_FILE = "allowed_users.json"
 PENDING_FILE = "pending_users.json"
 
-print("Starting Bot...", flush=True)
+print("Starting Bot - Ultra Light Mode...", flush=True)
 
 def load_json(file, default):
     if os.path.exists(file):
@@ -30,137 +29,53 @@ def save_json(file, data):
 allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
 pending_users = load_json(PENDING_FILE, {})
 
+def clean_desc(text):
+    if not text: return ""
+    t = str(text).strip()
+    t = unicodedata.normalize('NFC', t)
+    t = t.replace('ـ','')
+    t = t.replace('إحعادات','إعدادات').replace('البعرودة','البرودة')
+    t = t.replace('مكونعين','مكونين').replace('أكعثر','أكثر')
+    t = t.replace('زجععاج','زجاج').replace('زجعاج','زجاج')
+    t = re.sub(r'حع', 'ع', t)
+    return ' '.join(t.split())
+
 def has_arabic(s):
-    for c in s:
-        if '\u0600' <= c <= '\u06FF':
-            return True
-    return False
+    return any('\u0600' <= c <= '\u06FF' for c in s)
 
 def is_hs_code(s):
-    t = s.strip()
-    if not t: return False
-    cleaned = t.replace('.','').replace(' ','')
-    if not cleaned.isdigit(): return False
-    if len(cleaned) < 2 or len(cleaned) > 12: return False
-    return True
+    t = s.strip().replace('.','').replace(' ','')
+    return t.isdigit() and 2 <= len(t) <= 12
 
-# ========= التعديل الجديد - إصلاح شامل لحرف العين =========
-def clean_desc(text):
-    if not text: 
-        return ""
-    t = str(text).strip()
-
-    # 1- توحيد شكل الحروف أولاً (أهم خطوة لحرف العين)
-    t = unicodedata.normalize('NFC', t)
-
-    # 2- شيل التطويلة بعد التوحيد مش قبله
-    t = t.replace('ـ','')
-
-    # 3- إصلاحات حرف العين والغين - من الصورة اللي بعتها + مثال 30.03
-    # دي كانت المشكلة الأساسية عندك
-    fix_map = {
-        'إحعادات': 'إعدادات',
-        'احعادات': 'إعدادات',
-        'إحعدادات': 'إعدادات',
-        'البعرودة': 'البرودة',
-        'البعروده': 'البرودة',
-        'مععدات': 'معدات',
-        'مكونعين': 'مكونين',
-        'أكعثر': 'أكثر',
-        'كعثر': 'كثر',
-        'أرلفة': 'أغلفة',
-        'الحمعل': 'الحمل',
-        'أدويعة': 'أدوية',
-        'زجععاج': 'زجاج',
-        'زجعاج': 'زجاج',
-        'الاليات': 'الآلات',
-    }
-    for bad, good in fix_map.items():
-        t = t.replace(bad, good)
-
-    # 4- إصلاح التقطيع العام حع -> ع (ده اللي كان بيعمل إحعادات)
-    # بس نعمله بحذر عشان ما نبوزش كلمات سليمة
-    t = re.sub(r'حع', 'ع', t)
-
-    # 5- إصلاحاتك القديمة
-    t = t.replace('ع ع ع','').replace('ع ع','')
-    t = re.sub(r'\bرير\b', 'غير', t)
-    t = re.sub(r'\bريرها\b', 'غيرها', t)
-    t = re.sub(r'\bرير مشربة\b', 'غير مشربة', t)
-    t = re.sub(r'(\w)عين\b', r'\1ين', t)
-    t = re.sub(r'ويعة\b', 'وية', t)
-
-    return ' '.join(t.split())
-# ========= نهاية التعديل =========
-
-def find_code_and_desc(row):
-    code = None
-    for val in reversed(list(row)):
-        s = str(val).strip()
-        if s == 'nan' or s == '': continue
-        if is_hs_code(s):
-            if len(s.replace('.','')) == 1: continue
-            code = s
-            break
-    longest = ""
-    for val in row:
-        s = str(val).strip()
-        if s == 'nan' or s == '': continue
-        if has_arabic(s) and len(s) > len(longest) and len(s) > 5:
-            longest = s
-    return code, longest
-
-print("Loading EXLL.xlsx ...", flush=True)
-df = pd.read_excel("EXLL.xlsx", header=None)
+# === الحل السهل - بدون pandas ===
 items = []
-for idx in range(len(df)):
-    row = df.iloc[idx]
-    c,d = find_code_and_desc(row)
-    if c is None or d == "": continue
-    if len(d) > 400: continue
-    if "جمهورية مصر" in d or "وزارة المالية" in d: continue
-    if c == '2007': continue
-    cd = clean_desc(d)
-    items.append({'code': c, 'desc': cd, 'clean': c.replace('.','').replace(' ','')})
-
-print(f"Loaded {len(items)} EXLL items", flush=True)
-
-tariff_items = []
-tariff_map = {}
+print("Loading EXLL.xlsx low memory...", flush=True)
 try:
-    tariff_file = None
-    for name in ["Tariff.xlsx", "Tariff.xlsx.csv", "tariff.xlsx", "Tariff.csv"]:
-        if os.path.exists(name):
-            tariff_file = name
-            break
-    if tariff_file:
-        print(f"Loading {tariff_file} ...", flush=True)
-        df_t = pd.read_excel(tariff_file, dtype=str, header=None)
-        start = 1 if "رمز النظام" in str(df_t.iloc[0,0]) else 0
-        for i in range(start, len(df_t)):
-            row = df_t.iloc[i]
-            try:
-                code_raw = str(row.iloc[0]).strip()
-                if code_raw == 'nan' or code_raw == '': continue
-                code_clean = code_raw.replace('.','').strip()
-                if not code_clean.isdigit(): continue
-                arabic = str(row.iloc[1]) if len(row) > 1 else ""
-                duty = str(row.iloc[3]) if len(row) > 3 else ""
-                proc = str(row.iloc[4]) if len(row) > 4 else ""
-                if duty == 'nan': duty = ""
-                if proc == 'nan': proc = ""
-                if arabic == 'nan': arabic = ""
-                arabic = clean_desc(arabic)
-                item = {'code': code_raw, 'clean': code_clean, 'desc': arabic, 'duty': duty, 'proc': proc}
-                tariff_items.append(item)
-                tariff_map[code_clean] = duty
-            except:
-                continue
-        print(f"Loaded {len(tariff_items)} Tariff items", flush=True)
-    else:
-        print("No Tariff file found", flush=True)
+    from openpyxl import load_workbook
+    wb = load_workbook("EXLL.xlsx", read_only=True, data_only=True)
+    ws = wb.active
+    for row in ws.iter_rows(values_only=True):
+        if not row: continue
+        code = None
+        longest = ""
+        # ندور على الكود من اليمين للشمال
+        for val in reversed(row):
+            s = str(val).strip() if val is not None else ""
+            if is_hs_code(s) and s != '2007':
+                code = s
+                break
+        for val in row:
+            s = str(val).strip() if val is not None else ""
+            if has_arabic(s) and len(s) > len(longest) and len(s) > 5 and len(s) < 400:
+                if "جمهورية مصر" not in s and "وزارة المالية" not in s:
+                    longest = s
+        if code and longest:
+            items.append({'code': code, 'desc': clean_desc(longest), 'clean': code.replace('.','').replace(' ','')})
+    wb.close()
+    gc.collect()
+    print(f"Loaded {len(items)} - RAM: ~30MB", flush=True)
 except Exception as e:
-    print(f"Tariff load error: {e}", flush=True)
+    print(f"Error: {e}", flush=True)
 
 def is_allowed(uid):
     return uid in allowed_users or uid == ADMIN_ID
@@ -169,49 +84,22 @@ def search_combined(query):
     query = clean_desc(query.strip())
     q_lower = query.lower()
     digits = "".join([ch for ch in query if ch.isdigit()])
-
     if digits and len(digits) >= 2:
         for it in items:
             if it["clean"] == digits:
-                duties = [t for t in tariff_items if t["clean"].startswith(digits)]
-                return [it], duties[:5]
-        matched_tariff = [t for t in tariff_items if t["clean"] == digits]
-        if matched_tariff:
-            parent = None
-            for it in items:
-                if digits.startswith(it["clean"]) or it["clean"].startswith(digits[:4]):
-                    parent = it
-                    break
-            return [parent] if parent else [], matched_tariff[:5]
-
-        ex_results = [it for it in items if it["clean"].startswith(digits) or digits.startswith(it["clean"])]
-        tar_results = [t for t in tariff_items if t["clean"].startswith(digits)]
-        if ex_results or tar_results:
-            return ex_results[:5], tar_results[:5]
-
-    q_words = [w for w in q_lower.split() if len(w) > 1]
-    if not q_words:
-        return [], []
-
-    scored_ex = []
+                return [it], []
+        res = [it for it in items if it["clean"].startswith(digits) or digits.startswith(it["clean"])]
+        if res: return res[:5], []
+    words = [w for w in q_lower.split() if len(w) > 1]
+    scored = []
     for it in items:
         dl = it["desc"].lower()
         score = 100 if q_lower in dl else 0
-        for w in q_words:
+        for w in words:
             if w in dl: score += 10
-        if score > 0: scored_ex.append((score, it))
-    scored_ex.sort(key=lambda x: x[0], reverse=True)
-
-    scored_tar = []
-    for it in tariff_items:
-        dl = str(it["desc"]).lower()
-        score = 100 if q_lower in dl else 0
-        for w in q_words:
-            if w in dl: score += 10
-        if score > 0: scored_tar.append((score, it))
-    scored_tar.sort(key=lambda x: x[0], reverse=True)
-
-    return [x[1] for x in scored_ex[:7]], [x[1] for x in scored_tar[:7]]
+        if score > 0: scored.append((score, it))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [x[1] for x in scored[:7]], []
 
 async def request_approval(update, context):
     user = update.effective_user
@@ -233,7 +121,7 @@ async def request_approval(update, context):
 async def start(update, context):
     ok = await request_approval(update, context)
     if not ok: return
-    await update.message.reply_text("اهلا بيك\nابحث ب:\n- الكود: 5506 - 0101\n- الاسم: زجاج - خشب - خيول\nالبوت هيجيب الوصف + التعريفة مع بعض")
+    await update.message.reply_text("اهلا بيك - البوت شغال وضع خفيف\nابحث: 5506 - 0101 - زجاج")
 
 async def handle_search(update, context):
     ok = await request_approval(update, context)
@@ -242,34 +130,16 @@ async def handle_search(update, context):
     if len(text) < 2:
         await update.message.reply_text("اكتب كلمة اطول")
         return
-
-    ex_found, tar_found = search_combined(text)
-
-    if not ex_found and not tar_found:
+    ex_found, _ = search_combined(text)
+    if not ex_found:
         await update.message.reply_text("مفيش نتائج لـ: " + text)
         return
-
-    msg = ""
-    if ex_found:
-        it = ex_found[0]
-        msg += "📦 البند: " + it['code'] + "\n" + it['desc'] + "\n\n"
-
-    if tar_found:
-        msg += "💰 التعريفة:\n"
-        for t in tar_found[:5]:
-            duty = t['duty'] if t['duty'] else "غير محدد"
-            msg += "- " + t['code'] + " : " + duty + " | " + str(t['desc'])[:60] + "\n"
-
+    msg = f"📦 البند: {ex_found[0]['code']}\n{ex_found[0]['desc']}\n\n"
     if len(ex_found) > 1:
-        msg += "\n🔍 نتائج مشابهة:\n"
-        for it in ex_found[1:4]:
-            short = it['desc'][:50]
-            msg += "- [" + it['code'] + "] " + short + "\n"
-
-    if len(msg) > 4000:
-        msg = msg[:4000]
-
-    await update.message.reply_text(msg, parse_mode=None)
+        msg += "🔍 مشابهة:\n"
+        for it in ex_found[1:3]:
+            msg += f"- [{it['code']}] {it['desc'][:50]}\n"
+    await update.message.reply_text(msg[:4000], parse_mode=None)
 
 async def button_callback(update, context):
     q = update.callback_query
@@ -291,4 +161,11 @@ async def button_callback(update, context):
         uid = data.split("_")[1]
         pending_users.pop(uid, None)
         save_json(PENDING_FILE, pending_users)
-        await q.edit_message_text
+        await q.edit_message_text("تم رفض " + uid)
+
+if TOKEN:
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
+    app.run_polling()
