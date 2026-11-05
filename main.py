@@ -11,7 +11,7 @@ TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 ADMIN_ID = 1280808746
 ALLOWED_FILE = "allowed_users.json"
 PENDING_FILE = "pending_users.json"
-print("Starting Bot - SQLite Light...", flush=True)
+print("Starting Bot - Easy Mode...", flush=True)
 def load_json(file, default):
     if os.path.exists(file):
         try:
@@ -32,15 +32,8 @@ def clean_desc(text):
     t = unicodedata.normalize('NFKC', t)
     t = unicodedata.normalize('NFC', t)
     t = t.replace('ـ', '')
-    full_map = {'إعدادات البعرودة': 'إعدادات البرودة','إحعادات': 'إعدادات','البعرودة': 'البرودة','مععدات': 'معدات','مكونعين': 'مكونين','أكعثر': 'أكثر','أرلفة': 'أغلفة','الحمعل': 'الحمل','أدويعة': 'أدوية','زجععاج': 'زجاج','زجعاج': 'زجاج','بعرد': 'برد'}
-    for bad in sorted(full_map, key=len, reverse=True):
-        if bad in t:
-            t = t.replace(bad, full_map[bad])
-    t = t.replace('حع', 'ع')
-    t = re.sub(r'عع+', 'ع', t)
-    return ' '.join(t.split())
-def is_allowed(uid):
-    return uid in allowed_users or uid == ADMIN_ID
+    t = ' '.join(t.split())
+    return t
 tariff_items = []
 if os.path.exists("Tariff.json"):
     tariff_items = load_json("Tariff.json", [])
@@ -66,7 +59,7 @@ def search_combined(query):
     cur = conn.cursor()
     result = []
     try:
-        if digits and len(digits) >= 2:
+        if digits and len(digits) >= 2 and len(query.replace(" ", "")) <= 8:
             cur.execute("SELECT code, desc FROM items WHERE clean = ? LIMIT 1", (digits,))
             row = cur.fetchone()
             if row:
@@ -97,7 +90,7 @@ def search_combined(query):
         return [], []
 async def request_approval(update, context):
     user = update.effective_user
-    if is_allowed(user.id):
+    if user.id in allowed_users or user.id == ADMIN_ID:
         return True
     if str(user.id) in pending_users:
         await update.message.reply_text("طلبك قيد المراجعة")
@@ -117,90 +110,85 @@ async def start(update, context):
     ok = await request_approval(update, context)
     if not ok:
         return
-    await update.message.reply_text("اهلا بيك في بوت Logistics Group\nابحث ب:\n- الكود: 5506 - 0101\n- الاسم: زجاج - خشب - خيول\n\nاوامر جديدة:\n/calc 8471 100000 -> حاسبة تقديرية\n/qararat -> آخر قرارات الجمارك")
-async def handle_search(update, context):
+    await update.message.reply_text("اهلا بيك في بوت Logistics Group\n\nجرب تبعت بس من غير اوامر:\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n\nبس كده!")
+async def handle_smart(update, context):
     ok = await request_approval(update, context)
     if not ok:
         return
     text = update.message.text.strip()
-    if len(text) < 2:
-        await update.message.reply_text("اكتب كلمة اطول")
-        return
-    ex_found, _ = search_combined(text)
-    if not ex_found:
-        await update.message.reply_text("مفيش نتائج لـ: " + text)
-        return
-    it = ex_found[0]
-    msg = "📦 البند: " + it['code'] + "\n" + it['desc'] + "\n\n"
-    tariff = get_tariff(it['clean'])
-    if tariff:
-        msg += f"💰 وارد: {tariff.get('duty',0)}% | قيمة مضافة: {tariff.get('vat',14)}% | أرباح تجارية: {tariff.get('profit',0)}%\n"
-        msg += f"📋 التعريفة: {tariff.get('notes','')}\n\n"
-    else:
-        msg += "💰 النسب: غير موجودة في Tariff.json\n\n"
-    if len(ex_found) > 1:
-        msg += "🔍 نتائج مشابهة:\n"
-        for it2 in ex_found[1:4]:
-            msg += "- [" + it2['code'] + "] " + it2['desc'][:50] + "\n"
-    if len(msg) > 4000:
-        msg = msg[:4000]
-    await update.message.reply_text(msg)
-async def calc_handler(update, context):
-    ok = await request_approval(update, context)
-    if not ok:
-        return
-    try:
-        args = context.args
-        if len(args) < 2:
-            await update.message.reply_text("طريقة الحساب:\n/calc [البند] [قيمة الفاتورة]\nمثال:\n/calc 8471 100000")
+    low = text.lower()
+    if "منشور" in low or "manshour" in low or "قرار" in low:
+        num = "".join([c for c in text if c.isdigit()])
+        if not num:
+            await update.message.reply_text("اكتب رقم المنشور: مثال منشور 28")
             return
-        code = args[0].replace(".", "").replace(" ", "")
-        cif = float(args[1])
+        await update.message.reply_text(f"بدور على منشور {num} ...")
+        try:
+            q = f"منشور جمارك {num} نافذة"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = requests.get("https://www.google.com/search?q=" + q, headers=headers, timeout=12)
+            soup = BeautifulSoup(r.text, "html.parser")
+            found = []
+            for a in soup.find_all("a", href=True):
+                t = a.get_text(strip=True)
+                if len(t) > 20 and num in t:
+                    found.append("• " + t[:120])
+                if len(found) >= 5:
+                    break
+            if found:
+                msg = f"📜 منشور {num} - نتائج البحث:\n\n" + "\n\n".join(found)
+                msg += f"\n\n🔗 شوفه كامل في نافذة:\nhttps://www.nafeza.gov.eg/"
+                msg += f"\n🔗 بحث جوجل:\nhttps://www.google.com/search?q={q.replace(' ', '+')}"
+            else:
+                msg = f"📜 منشور {num}\n\nملقيتوش في البحث التلقائي.\n\nشوفه هنا:\n1- نافذة: https://www.nafeza.gov.eg/\n2- جوجل: https://www.google.com/search?q=منشور+جمارك+{num}\n\nلو لقيته ابعتهولي وانا احفظه."
+            await update.message.reply_text(msg)
+        except Exception:
+            await update.message.reply_text(f"📜 منشور {num}\n\nشوفه هنا:\nhttps://www.nafeza.gov.eg/\nhttps://www.google.com/search?q=منشور+جمارك+{num}")
+        return
+    parts = text.replace(",", " ").split()
+    if len(parts) == 2 and parts[0].replace(".", "").isdigit() and parts[1].replace(".", "").isdigit():
+        code = parts[0].replace(".", "")
+        try:
+            cif = float(parts[1])
+        except Exception:
+            cif = 0
         tariff = get_tariff(code)
         if not tariff:
-            await update.message.reply_text("البند مش موجود في Tariff.json")
+            await update.message.reply_text(f"البند {code} مش موجود في Tariff.json\nجرب بند تاني او ابعت للادمن النسب")
             return
         duty_p = float(tariff.get("duty", 0))
         vat_p = float(tariff.get("vat", 14))
         profit_p = float(tariff.get("profit", 0))
         duty, vat, profit, total = calc_customs(cif, duty_p, vat_p, profit_p)
-        msg = f"🧾 حساب تقديري - البند: {code}\n"
+        msg = f"🧾 حساب - البند: {code}\n"
         msg += f"قيمة CIF: {cif:,.0f} ج\n\n"
-        msg += f"نسبة الوارد: {duty_p}% = {duty:,.0f} ج\n"
-        msg += f"القيمة المضافة: {vat_p}% = {vat:,.0f} ج\n"
-        msg += f"أرباح تجارية: {profit_p}% = {profit:,.0f} ج\n"
+        msg += f"وارد {duty_p}% = {duty:,.0f} ج\n"
+        msg += f"قيمة مضافة {vat_p}% = {vat:,.0f} ج\n"
+        msg += f"ارباح تجارية {profit_p}% = {profit:,.0f} ج\n"
         msg += "----------------\n"
-        msg += f"إجمالي تقديري: {total:,.0f} ج\n\n"
-        msg += f"ملاحظة: {tariff.get('notes','')}\n"
-        msg += "⚠️ حساب استرشادي فقط"
+        msg += f"اجمالي تقديري: {total:,.0f} ج\n"
+        msg += f"\nملاحظة: {tariff.get('notes','')}"
         await update.message.reply_text(msg)
-    except Exception:
-        await update.message.reply_text("خطأ في الحساب\nمثال: /calc 8471 100000")
-async def decisions_handler(update, context):
-    ok = await request_approval(update, context)
-    if not ok:
         return
-    await update.message.reply_text("جاري جلب آخر قرارات الجمارك من customs.gov.eg ...")
-    try:
-        url = "https://www.customs.gov.eg/"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(r.text, "html.parser")
-        links = []
-        for a in soup.find_all("a", href=True):
-            txt = a.get_text(strip=True)
-            if len(txt) > 20 and ("قرار" in txt or "تعريفة" in txt or "منشور" in txt or "جمارك" in txt):
-                links.append(f"• {txt[:100]}")
-            if len(links) >= 7:
-                break
-        if not links:
-            msg = "موقع الجمارك مش راجع بيانات دلوقتي.\nادخل مباشرة: https://www.customs.gov.eg/"
-        else:
-            msg = "📢 آخر قرارات مصلحة الجمارك:\n\n" + "\n\n".join(links)
-            msg += "\n\nالمصدر: customs.gov.eg"
-        await update.message.reply_text(msg)
-    except Exception:
-        await update.message.reply_text("موقع الجمارك مش متاح دلوقتي\nhttps://www.customs.gov.eg/")
+    ex_found, _ = search_combined(text)
+    if not ex_found:
+        await update.message.reply_text("مفيش نتائج لـ: " + text + "\n\nتأكد ان ملف items.db موجود في FadeHost\nاو جرب: منشور 28 - او - 8471 100000")
+        return
+    it = ex_found[0]
+    msg = "📦 البند: " + it['code'] + "\n" + it['desc'] + "\n\n"
+    tariff = get_tariff(it['clean'])
+    if tariff:
+        msg += f"💰 وارد: {tariff.get('duty',0)}% | قيمة مضافة: {tariff.get('vat',14)}% | ارباح: {tariff.get('profit',0)}%\n"
+        msg += f"📋 {tariff.get('notes','')}\n\n"
+    else:
+        msg += "💰 النسب: مش موجودة في Tariff.json\n\n"
+    msg += f"🔗 التأكد من نافذة:\nhttps://www.nafeza.gov.eg/\n\n"
+    msg += "💡 عشان تحسبها ابعت:\n" + it['clean'] + " 100000"
+    if len(ex_found) > 1:
+        msg += "\n\n🔍 مشابهة:\n"
+        for it2 in ex_found[1:3]:
+            msg += "- [" + it2['code'] + "] " + it2['desc'][:50] + "\n"
+    await update.message.reply_text(msg[:4000])
 async def button_callback(update, context):
     q = update.callback_query
     await q.answer()
@@ -228,9 +216,6 @@ if TOKEN:
     print("Bot polling started...", flush=True)
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("calc", calc_handler))
-    app.add_handler(CommandHandler("qararat", decisions_handler))
-    app.add_handler(CommandHandler("decisions", decisions_handler))
     app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_smart))
     app.run_polling()
