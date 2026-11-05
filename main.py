@@ -289,10 +289,48 @@ async def button_callback(update, context):
         pending_users.pop(uid, None)
         save_json(PENDING_FILE, pending_users)
         await q.edit_message_text("تم رفض " + uid)
+
+# ===== الأوامر الجديدة: عرض وإزالة اليوزرز - إزالة بس من غير حظر =====
+async def admin_list(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = "👥 المصرح لهم:\n"
+    for uid in allowed_users:
+        text += f"• {uid}\n"
+    text += f"\n⏳ المنتظرين:\n"
+    for pid, info in pending_users.items():
+        text += f"• {pid} - {info.get('name','')} @{info.get('username','')}\n"
+    text += "\nعشان تشيل حد ابعت:\n/remove + الـ ID\nمثال: /remove 123456789"
+    await update.message.reply_text(text)
+
+async def remove_user(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not context.args:
+        await update.message.reply_text("ابعت كده:\n/remove 123456789")
+        return
+    try:
+        uid = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("الـ ID لازم يكون رقم")
+        return
+    # إزالة بس من غير حظر - لو طلب تاني هيجيلك موافقة/رفض
+    allowed_users.discard(uid)
+    pending_users.pop(str(uid), None)
+    save_json(ALLOWED_FILE, list(allowed_users))
+    save_json(PENDING_FILE, pending_users)
+    await update.message.reply_text(f"✅ تمت إزالة {uid}، لو بعت تاني هيجيلك طلب موافقة جديد.")
+    try:
+        await context.bot.send_message(chat_id=uid, text="تمت إزالتك من البوت، لو عايز تدخل تاني ابعت /start وانتظر الموافقة.")
+    except Exception:
+        pass
+
 if TOKEN:
     print("Bot polling started...", flush=True)
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("users", admin_list))
+    app.add_handler(CommandHandler("remove", remove_user))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_smart))
     app.run_polling()
