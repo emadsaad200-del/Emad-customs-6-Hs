@@ -74,13 +74,52 @@ def clean_desc(text):
     return t
 tariff_items = []
 if os.path.exists("Tariff.json"):
+   tariff_items = []
+if os.path.exists("Tariff.json"):
     tariff_items = load_json("Tariff.json", [])
+
 def get_tariff(code_clean):
+    # 1- جرب ملف Tariff.json الأول لو موجود
     for t in tariff_items:
         tc = str(t.get("code", "")).replace(".", "").replace(" ", "")
         if tc == code_clean or code_clean.startswith(tc) or tc.startswith(code_clean):
             return t
-    return None
+    # 2- لو مش موجود، هات الفئة من الموسوعة نفسها من الـ desc
+    try:
+        import sqlite3, re
+        db_path = "items.db"
+        # لو متغير DB موجود عندك استخدمه
+        if "DB" in globals():
+            db_path = globals()["DB"]
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT desc FROM items WHERE REPLACE(code,'.','')=?", (code_clean,))
+        row = cur.fetchone()
+        if not row:
+            # جرب بـ LIKE لو الكود 6 أرقام بس
+            cur.execute("SELECT desc FROM items WHERE REPLACE(code,'.','') LIKE ?", (code_clean[:6]+"%",))
+            row = cur.fetchone()
+        conn.close()
+        if row and row[0]:
+            desc = str(row[0])
+            m = re.search(r"فئة\s*:\s*([0-9]+(?:\.[0-9]+)?)", desc)
+            if m:
+                duty = float(m.group(1))
+            elif "معف" in desc or "معفي" in desc:
+                duty = 0
+            else:
+                duty = 0
+            # هات ضريبة القيمة المضافة والارباح لو مكتوبين
+            m_vat = re.search(r"قيمة مضافة\s*:\s*([0-9]+)", desc)
+            m_prof = re.search(r"ارباح\s*:\s*([0-9]+)", desc)
+            return {
+                "duty": duty,
+                "vat": float(m_vat.group(1)) if m_vat else 14,
+                "profit": float(m_prof.group(1)) if m_prof else 0,
+            }
+    except Exception:
+        pass
+    return None 
 def calc_customs(cif, duty_p, vat_p, profit_p):
     duty = cif * duty_p / 100
     vat = (cif + duty) * vat_p / 100
