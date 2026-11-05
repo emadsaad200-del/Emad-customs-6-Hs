@@ -3,6 +3,44 @@ import json
 import re
 import unicodedata
 import sqlite3
+# تحويل موسوعة 2025
+import openpyxl
+fname = None
+for n in ["Book1LOGIST TATTEF.xlsx", "Book1LOGIST_TATTEF.xlsx"]:
+    if os.path.exists(n):
+        fname = n
+        break
+if fname and not os.path.exists("items.db"):
+    wb = openpyxl.load_workbook(fname, read_only=True, data_only=True)
+    ws = wb.active
+    conn = sqlite3.connect("items.db")
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS items (code TEXT, desc TEXT, clean TEXT)")
+    cur.execute("DELETE FROM items")
+    for row in ws.iter_rows(values_only=True):
+        if not row or not row[0]:
+            continue
+        t = str(row[0]).strip()
+        if len(t) < 7:
+            continue
+        code = ""
+        for part in t.replace("-", " ").split():
+            p = part.strip()
+            if len(p) == 7 and p[4] == "." and p[:4].isdigit() and p[5:].isdigit():
+                code = p
+                break
+        if code:
+            duty = "معفاه" if ("معفاه" in t or "معفاة" in t) else ""
+            if not duty:
+                w = t.split()
+                if w and w[-1].isdigit():
+                    duty = w[-1]
+            desc = t.replace(code, "").replace(duty, "").replace("-", " ").strip()
+            if len(desc) < 3:
+                desc = code
+            cur.execute("INSERT INTO items VALUES (?,?,?)", (code, desc + " | فئة: " + duty, code.replace(".", "")))
+    conn.commit()
+    conn.close()
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
