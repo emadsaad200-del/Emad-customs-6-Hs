@@ -3,6 +3,7 @@ import json
 import re
 import gc
 import unicodedata
+import sqlite3
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,7 +14,7 @@ ADMIN_ID = 1280808746
 ALLOWED_FILE = "allowed_users.json"
 PENDING_FILE = "pending_users.json"
 
-print("Starting Bot - Full Fixed Version...", flush=True)
+print("Starting Bot - SQLite Light Version...", flush=True)
 
 def load_json(file, default):
     if os.path.exists(file):
@@ -31,7 +32,7 @@ def save_json(file, data):
 allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
 pending_users = load_json(PENDING_FILE, {})
 
-# ========= دالة الإصلاح الشاملة لحرف العين =========
+# ========= إصلاح حرف العين =========
 def clean_desc(text):
     if not text:
         return ""
@@ -90,81 +91,14 @@ def clean_desc(text):
     t = re.sub(r'ويعة\b', 'وية', t)
     return ' '.join(t.split())
 
-def has_arabic(s):
-    return any('\u0600' <= c <= '\u06FF' for c in s)
+def is_allowed(uid):
+    return uid in allowed_users or uid == ADMIN_ID
 
-def is_hs_code(s):
-    t = s.strip().replace('.','').replace(' ','')
-    return t.isdigit() and 2 <= len(t) <= 12
-
-def find_code_and_desc(row):
-    code = None
-    for val in reversed(row):
-        s = str(val).strip() if val is not None else ""
-        if s == 'nan' or s == '': continue
-        if is_hs_code(s) and len(s.replace('.','')) != 1:
-            code = s
-            break
-    longest = ""
-    for val in row:
-        s = str(val).strip() if val is not None else ""
-        if s == 'nan' or s == '': continue
-        if has_arabic(s) and len(s) > len(longest) and len(s) > 5 and len(s) < 400:
-            if "جمهورية مصر" not in s and "وزارة المالية" not in s:
-                longest = s
-    return code, longest
-
-# ========= تحميل خفيف بدون pandas =========
-items = []
-print("Loading EXLL.xlsx low RAM...", flush=True)
-try:
-    from openpyxl import load_workbook
-    wb = load_workbook("EXLL.xlsx", read_only=True, data_only=True)
-    ws = wb.active
-    for row in ws.iter_rows(values_only=True):
-        if not row: continue
-        c,d = find_code_and_desc(row)
-        if c is None or d == "": continue
-        if c == '2007': continue
-        items.append({'code': c, 'desc': clean_desc(d), 'clean': c.replace('.','').replace(' ','')})
-    wb.close()
-    gc.collect()
-    print(f"Loaded {len(items)} items - RAM OK ~35MB", flush=True)
-except Exception as e:
-    print(f"Load error: {e}", flush=True)
-
+# ========= التعريفة من Tariff.json =========
 tariff_items = []
 if os.path.exists("Tariff.json"):
     tariff_items = load_json("Tariff.json", [])
 
-def is_allowed(uid):
-    return uid in allowed_users or uid == ADMIN_ID
-
-def search_combined(query):
-    query = clean_desc(query.strip())
-    q_lower = query.lower()
-    digits = "".join([ch for ch in query if ch.isdigit()])
-    if digits and len(digits) >= 2:
-        for it in items:
-            if it["clean"] == digits:
-                return [it], []
-        ex_results = [it for it in items if it["clean"].startswith(digits) or digits.startswith(it["clean"])]
-        if ex_results:
-            return ex_results[:5], []
-    q_words = [w for w in q_lower.split() if len(w) > 1]
-    if not q_words:
-        return [], []
-    scored_ex = []
-    for it in items:
-        dl = it["desc"].lower()
-        score = 100 if q_lower in dl else 0
-        for w in q_words:
-            if w in dl: score += 10
-        if score > 0: scored_ex.append((score, it))
-    scored_ex.sort(key=lambda x: x[0], reverse=True)
-    return [x[1] for x in scored_ex[:7]], []
-
-# ========= إضافة الجمارك - التعريفة والحاسبة والقرارات =========
 def get_tariff(code_clean):
     for t in tariff_items:
         tc = str(t.get("code","")).replace(".","").replace(" ","")
@@ -179,6 +113,44 @@ def calc_customs(cif, duty_p, vat_p, profit_p):
     profit = cif * profit_p / 100
     total = duty + vat + profit
     return duty, vat, profit, total
+
+# ========= البحث من SQLite - خفيف جدا بدون EXLL.xlsx =========
+def search_combined(query):
+    query = clean_desc(query.strip())
+    q_lower = query.lower()
+    digits = "".join([ch for ch in query if ch.isdigit()])
+
+    if not os.path.exists("items.db"):
+        return [], []
+
+    conn = sqlite3.connect("items.db")
+    cur = conn.cursor()
+
+    try:
+        if digits and len(digits) >= 2:
+            cur.execute("SELECT code, desc FROM items WHERE clean = ? LIMIT 1", (digits,))
+            row = cur.fetchone()
+            if row:
+                conn.close()
+                return [{'code': row[0], 'desc': clean_desc(row[1]), 'clean': digits}], []
+            cur.execute("SELECT code, desc FROM items WHERE clean LIKE ? LIMIT 5", (digits + "%",))
+            rows = cur.fetchall()
+            conn.close()
+            return [{'code': r[0], 'desc': clean_desc(r[1]), 'clean': r[0].replace(".","").replace(" ","")} for r in rows], []
+
+        words = [w for w in q_lower.split() if len(w) > 1]
+        if not words:
+            conn.close()
+            return [], []
+        cur.execute("SELECT code, desc FROM items WHERE desc LIKE ? LIMIT 7", ("%" + words[0] + "%",))
+        rows = cur.fetchall()
+        conn.close()
+        return [{'code': r[0], 'desc': clean_desc(r[1]), 'clean': r[0].replace(".","").replace(" ","")} for r in rows], []
+    except Exception as e:
+        print(f"Search error: {e}", flush=True)
+        try: conn.close()
+        except: pass
+        return [], []
 
 async def request_approval(update, context):
     user = update.effective_user
@@ -225,4 +197,60 @@ async def handle_search(update, context):
     if len(ex_found) > 1:
         msg += "🔍 نتائج مشابهة:\n"
         for it2 in ex_found[1:4]:
-            msg += "- [" + it2['code']
+            msg += "- [" + it2['code'] + "] " + it2['desc'][:50] + "\n"
+    if len(msg) > 4000:
+        msg = msg[:4000]
+    await update.message.reply_text(msg, parse_mode=None)
+
+async def calc_handler(update, context):
+    ok = await request_approval(update, context)
+    if not ok: return
+    try:
+        args = context.args
+        if len(args) < 2:
+            await update.message.reply_text("طريقة الحساب:\n/calc [البند] [قيمة الفاتورة بالجنيه]\n\nمثال:\n/calc 8471 100000")
+            return
+        code = args[0].replace(".","").replace(" ","")
+        cif = float(args[1])
+        tariff = get_tariff(code)
+        if not tariff:
+            await update.message.reply_text("البند مش موجود في ملف التعريفة Tariff.json")
+            return
+        duty_p = float(tariff.get("duty",0))
+        vat_p = float(tariff.get("vat",14))
+        profit_p = float(tariff.get("profit",0))
+        duty, vat, profit, total = calc_customs(cif, duty_p, vat_p, profit_p)
+        msg = f"🧾 حساب تقديري - البند: {code}\n"
+        msg += f"قيمة CIF: {cif:,.0f} ج\n\n"
+        msg += f"نسبة الوارد: {duty_p}% = {duty:,.0f} ج\n"
+        msg += f"القيمة المضافة: {vat_p}% = {vat:,.0f} ج\n"
+        msg += f"أرباح تجارية: {profit_p}% = {profit:,.0f} ج\n"
+        msg += f"----------------\n"
+        msg += f"إجمالي تقديري: {total:,.0f} ج\n\n"
+        msg += f"ملاحظة: {tariff.get('notes','')}\n"
+        msg += "⚠️ حساب استرشادي فقط - بدون رسم تنمية ومصاريف تخليص"
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text("خطأ في الحساب، اتأكد من الأرقام\nمثال: /calc 8471 100000")
+
+async def decisions_handler(update, context):
+    ok = await request_approval(update, context)
+    if not ok: return
+    await update.message.reply_text("جاري جلب آخر قرارات الجمارك من customs.gov.eg ...")
+    try:
+        url = "https://www.customs.gov.eg/"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(r.text, "html.parser")
+        links = []
+        for a in soup.find_all("a", href=True):
+            txt = a.get_text(strip=True)
+            if len(txt) > 20 and ("قرار" in txt or "تعريفة" in txt or "منشور" in txt or "جمارك" in txt):
+                links.append(f"• {txt[:100]}")
+            if len(links) >= 7:
+                break
+        if not links:
+            msg = "موقع الجمارك مش راجع بيانات دلوقتي.\nادخل مباشرة: https://www.customs.gov.eg/"
+        else:
+            msg = "📢 آخر قرارات مصلحة الجمارك:\n\n" + "\n\n".join(links)
+            msg
