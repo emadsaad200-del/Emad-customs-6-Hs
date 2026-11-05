@@ -3,6 +3,8 @@ import json
 import re
 import gc
 import unicodedata
+import requests
+from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
@@ -29,13 +31,11 @@ def save_json(file, data):
 allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
 pending_users = load_json(PENDING_FILE, {})
 
-# ========= دالة الإصلاح الشاملة لحرف العين - تشمل كل ما سبق =========
+# ========= دالة الإصلاح الشاملة لحرف العين =========
 def clean_desc(text):
     if not text:
         return ""
     t = str(text).strip()
-
-    # 1- إصلاح الترميز البايظ من الاكسيل نفسه
     try:
         if 'حع' in t or 'إحعادات' in t or 'البعرودة' in t:
             try:
@@ -52,13 +52,9 @@ def clean_desc(text):
                 pass
     except:
         pass
-
-    # 2- توحيد الحروف (NFC+NFKC) - يصلح اتصال العين
     t = unicodedata.normalize('NFKC', t)
     t = unicodedata.normalize('NFC', t)
     t = t.replace('ـ', '')
-
-    # 3- قاموس كامل شامل كل الكلمات اللي ظهرت عندك
     full_map = {
         'إعدادات البعرودة': 'إعدادات البرودة',
         'إحعادات البعرودة': 'إعدادات البرودة',
@@ -80,12 +76,9 @@ def clean_desc(text):
         'الاليات': 'الآلات',
         'بعرد': 'برد',
     }
-    # الأطول أولا
     for bad in sorted(full_map, key=len, reverse=True):
         if bad in t:
             t = t.replace(bad, full_map[bad])
-
-    # 4- إصلاح عام للتقطيع
     t = t.replace('حع', 'ع')
     t = re.sub(r'(\w)حع(\w)', r'\1ع\2', t)
     t = re.sub(r'عع+', 'ع', t)
@@ -95,7 +88,6 @@ def clean_desc(text):
     t = re.sub(r'\bرير مشربة\b', 'غير مشربة', t)
     t = re.sub(r'(\w)عين\b', r'\1ين', t)
     t = re.sub(r'ويعة\b', 'وية', t)
-
     return ' '.join(t.split())
 
 def has_arabic(s):
@@ -122,7 +114,7 @@ def find_code_and_desc(row):
                 longest = s
     return code, longest
 
-# ========= تحميل خفيف بدون pandas - يحل مشكلة نفاد الذاكرة =========
+# ========= تحميل خفيف بدون pandas =========
 items = []
 print("Loading EXLL.xlsx low RAM...", flush=True)
 try:
@@ -141,7 +133,6 @@ try:
 except Exception as e:
     print(f"Load error: {e}", flush=True)
 
-# Tariff اختياري - لو موجود
 tariff_items = []
 if os.path.exists("Tariff.json"):
     tariff_items = load_json("Tariff.json", [])
@@ -153,7 +144,6 @@ def search_combined(query):
     query = clean_desc(query.strip())
     q_lower = query.lower()
     digits = "".join([ch for ch in query if ch.isdigit()])
-
     if digits and len(digits) >= 2:
         for it in items:
             if it["clean"] == digits:
@@ -161,11 +151,9 @@ def search_combined(query):
         ex_results = [it for it in items if it["clean"].startswith(digits) or digits.startswith(it["clean"])]
         if ex_results:
             return ex_results[:5], []
-
     q_words = [w for w in q_lower.split() if len(w) > 1]
     if not q_words:
         return [], []
-
     scored_ex = []
     for it in items:
         dl = it["desc"].lower()
@@ -174,8 +162,23 @@ def search_combined(query):
             if w in dl: score += 10
         if score > 0: scored_ex.append((score, it))
     scored_ex.sort(key=lambda x: x[0], reverse=True)
-
     return [x[1] for x in scored_ex[:7]], []
+
+# ========= إضافة الجمارك - التعريفة والحاسبة والقرارات =========
+def get_tariff(code_clean):
+    for t in tariff_items:
+        tc = str(t.get("code","")).replace(".","").replace(" ","")
+        if tc == code_clean or code_clean.startswith(tc) or tc.startswith(code_clean):
+            return t
+    return None
+
+def calc_customs(cif, duty_p, vat_p, profit_p):
+    duty = cif * duty_p / 100
+    vat_base = cif + duty
+    vat = vat_base * vat_p / 100
+    profit = cif * profit_p / 100
+    total = duty + vat + profit
+    return duty, vat, profit, total
 
 async def request_approval(update, context):
     user = update.effective_user
@@ -197,7 +200,7 @@ async def request_approval(update, context):
 async def start(update, context):
     ok = await request_approval(update, context)
     if not ok: return
-    await update.message.reply_text("اهلا بيك\nابحث ب:\n- الكود: 5506 - 0101\n- الاسم: زجاج - خشب - خيول\nالبوت هيجيب الوصف + تم إصلاح العين + وضع خفيف")
+    await update.message.reply_text("اهلا بيك في بوت Logistics Group\nابحث ب:\n- الكود: 5506 - 0101\n- الاسم: زجاج - خشب - خيول\n\nاوامر جديدة:\n/calc 8471 100000 -> حاسبة تقديرية\n/qararat -> آخر قرارات الجمارك")
 
 async def handle_search(update, context):
     ok = await request_approval(update, context)
@@ -213,40 +216,13 @@ async def handle_search(update, context):
     msg = ""
     it = ex_found[0]
     msg += "📦 البند: " + it['code'] + "\n" + it['desc'] + "\n\n"
+    tariff = get_tariff(it['clean'])
+    if tariff:
+        msg += f"💰 وارد: {tariff.get('duty',0)}% | قيمة مضافة: {tariff.get('vat',14)}% | أرباح تجارية: {tariff.get('profit',0)}%\n"
+        msg += f"📋 التعريفة: {tariff.get('notes','')}\n\n"
+    else:
+        msg += "💰 النسب: غير موجودة في Tariff.json\n\n"
     if len(ex_found) > 1:
         msg += "🔍 نتائج مشابهة:\n"
         for it2 in ex_found[1:4]:
-            msg += "- [" + it2['code'] + "] " + it2['desc'][:50] + "\n"
-    if len(msg) > 4000:
-        msg = msg[:4000]
-    await update.message.reply_text(msg, parse_mode=None)
-
-async def button_callback(update, context):
-    q = update.callback_query
-    await q.answer()
-    if q.from_user.id != ADMIN_ID:
-        await q.edit_message_text("لست الادمن")
-        return
-    data = q.data
-    if data.startswith("approve_"):
-        uid = int(data.split("_")[1])
-        allowed_users.add(uid)
-        save_json(ALLOWED_FILE, list(allowed_users))
-        pending_users.pop(str(uid), None)
-        save_json(PENDING_FILE, pending_users)
-        await q.edit_message_text("تمت الموافقة على " + str(uid))
-        try: await context.bot.send_message(chat_id=uid, text="تمت الموافقة! ابعت /start")
-        except: pass
-    else:
-        uid = data.split("_")[1]
-        pending_users.pop(uid, None)
-        save_json(PENDING_FILE, pending_users)
-        await q.edit_message_text("تم رفض " + uid)
-
-if TOKEN:
-    print("Bot polling started - 256MB Fixed...", flush=True)
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-    app.run_polling()
+            msg += "- [" + it2['code']
