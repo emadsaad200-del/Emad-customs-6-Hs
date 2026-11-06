@@ -353,7 +353,7 @@ async def handle_smart(update, context):
             return
         duty_p = float(tariff.get("duty", 0))
         vat_p = float(tariff.get("vat", 14))
-        profit_p = float(tariff.get("profit", 0))
+               profit_p = float(tariff.get("profit") or 1.0) 
         dev_p = float(tariff.get("dev", get_dev_fee(tariff.get("code", code))))
         table_p = float(tariff.get("table", 0))
         dumping_p = float(tariff.get("dumping", 0))
