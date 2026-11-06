@@ -3,6 +3,13 @@ import json
 import re
 import unicodedata
 import sqlite3
+# تجاوز ملف items.db المقفول - استخدم ملف جديد
+_orig_connect = sqlite3.connect
+def _patched_connect(path, *a, **k):
+    if path == "items.db":
+        path = "items_v2.db"
+    return _orig_connect(path, *a, **k)
+sqlite3.connect = _patched_connect
 import openpyxl
 
 # =========================================================
@@ -14,7 +21,7 @@ for n in ["Book1LOGIST TATTEF.xlsx", "Book1LOGIST_TATTEF.xlsx"]:
         fname = n
         break
 
-if fname and not os.path.exists("items.db"):
+if fname and not os.path.exists("items_v2.db"):
     wb = openpyxl.load_workbook(fname, read_only=True, data_only=True)
     ws = wb.active
     conn = sqlite3.connect("items.db")
