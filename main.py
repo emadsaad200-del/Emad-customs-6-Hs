@@ -132,7 +132,8 @@ VAT_DEFAULT = 14.0
 VAT_EXEMPT_PREFIX = ["2309.9010"]  # اضافات فيتامينات - معفاه في ملفك، ضيف عليها لو عندك
 
 # رسم التنمية: الافتراضي 10% - فصول غذائية اساسية معفاة
-DEV_DEFAULT = 10.0
+DEV_DEFAULT = 0.0
+PROFIT_DEFAULT = 1.0
 DEV_EXEMPT_CHAPTERS = ["01", "02", "03", "04", "07", "08", "10", "11", "12"]
 
 # ضريبة جدول - لبعض السلع فقط، ضيف هنا لو عندك بند
@@ -150,6 +151,10 @@ def get_dev_fee(code):
     if ch in DEV_EXEMPT_CHAPTERS:
         return 0.0
     return DEV_DEFAULT
+def get_profit_fee(code, is_factory):
+    if is_factory:
+        return 0.0
+    return PROFIT_DEFAULT
 
 def get_vat(code):
     if any(code.startswith(p) for p in VAT_EXEMPT_PREFIX):
