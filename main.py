@@ -214,7 +214,7 @@ def calc_customs(cif, duty_p, vat_p, profit_p, dev_p=0, table_p=0, dumping_p=0):
     table = (cif + duty) * table_p / 100 if table_p else 0
     dumping = cif * dumping_p / 100 if dumping_p else 0
     vat = (cif + duty + dev + table + dumping) * vat_p / 100
-    profit = cif * profit_p / 100
+   profit = (cif + duty) * profit_p / 100
     total = duty + vat + profit + dev + table + dumping
     return duty, vat, profit, total, dev, table, dumping
 
