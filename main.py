@@ -93,7 +93,7 @@ if fname and not os.path.exists("items_v2.db"):
 # =========================================================
 def build_gs1():
     gs1_file = None
-    for n in ["gs1_exle.xlsx", "gs1_exle.XLSX", "GS1.xlsx"]:
+    for n in ["gs1_exle.xlsx", "gs1 exle.xlsx", "gs1_exle.XLSX", "GS1.xlsx"]:
         if os.path.exists(n):
             gs1_file = n
             break
@@ -117,8 +117,6 @@ def build_gs1():
         ws = wb.active
         seen = set()
         count = 0
-        # أول صف هو الهيدر: SegmentCode, SegmentTitle, FamilyCode, FamilyTitle, ClassCode, ClassTitle, BrickCode, BrickTitle, BrickDefinition_Includes, BrickDefinition_Excludes ...
-        # الترتيب: 0 SegmentCode, 1 SegmentTitle, 2 SegmentDefinition, 3 FamilyCode, 4 FamilyTitle, 5 FamilyDefinition, 6 ClassCode, 7 ClassTitle, 8 ClassDefinition, 9 BrickCode, 10 BrickTitle, 11 Includes, 12 Excludes
         first = True
         for row in ws.iter_rows(values_only=True):
             if first:
@@ -156,7 +154,6 @@ def search_gs1(query):
     try:
         conn = sqlite3.connect("items.db")
         cur = conn.cursor()
-        # بحث بالكود أو بالاسم
         if query.replace(" ", "").isdigit():
             cur.execute("SELECT brick_code, brick_title, segment_title, family_title, class_title, includes_text, excludes_text FROM gs1_bricks WHERE brick_code LIKE ? LIMIT 5", (query + "%",))
         else:
@@ -210,21 +207,16 @@ def clean_desc(text):
 # الفئة نفسها بتيجي من الموسوعة، الباقي قواعد عامة
 # =========================================================
 VAT_DEFAULT = 14.0
-VAT_EXEMPT_PREFIX = ["2309.9010"]  # اضافات فيتامينات - معفاه في ملفك، ضيف عليها لو عندك
+VAT_EXEMPT_PREFIX = ["2309.9010"]
 
-# رسم التنمية: الافتراضي 10% - فصول غذائية اساسية معفاة
 DEV_DEFAULT = 0.0
 PROFIT_DEFAULT = 1.0
 DEV_EXEMPT_CHAPTERS = ["01", "02", "03", "04", "07", "08", "10", "11", "12"]
 
-# ضريبة جدول - لبعض السلع فقط، ضيف هنا لو عندك بند
 TABLE_TAX = {
-    # مثال: "2402.20": 50,
 }
 
-# رسم اغراق / وقائي - جدول منفصل، لما يجيلك منشور ضيف الكود هنا بس
 ANTI_DUMPING = {
-    # مثال: "7210.70": 15,
 }
 
 def get_dev_fee(code):
@@ -255,12 +247,10 @@ if os.path.exists("Tariff.json"):
     tariff_items = load_json("Tariff.json", [])
 
 def get_tariff(code_clean):
-    # 1- Tariff.json لو موجود
     for t in tariff_items:
         tc = str(t.get("code", "")).replace(".", "").replace(" ", "")
         if tc == code_clean or code_clean.startswith(tc) or tc.startswith(code_clean):
             return t
-    # 2- من الموسوعة نفسها
     try:
         conn = sqlite3.connect("items.db")
         cur = conn.cursor()
@@ -289,7 +279,6 @@ def get_tariff(code_clean):
     return None
 
 def calc_customs(cif, duty_p, vat_p, profit_p, dev_p=0, table_p=0, dumping_p=0):
-    # الترتيب الصح: جمرك -> تنمية -> جدول -> اغراق -> قيمة مضافة على الكل
     duty = cif * duty_p / 100
     dev = cif * dev_p / 100
     table = (cif + duty) * table_p / 100 if table_p else 0
@@ -346,7 +335,6 @@ def search_combined(query):
         if not words:
             conn.close()
             return [], []
-        # بحث عربي او انجليزي
         cur.execute("SELECT code, desc_ar, desc_en, duty FROM items WHERE desc_ar LIKE ? OR desc_en LIKE ? LIMIT 7", ("%" + words[0] + "%", "%" + words[0] + "%"))
         rows = cur.fetchall()
         conn.close()
@@ -386,7 +374,6 @@ async def start(update, context):
         return
     await update.message.reply_text("اهلا بيك في بوت Logistics Group\n\nجرب تبعت بس من غير اوامر:\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n/gpc paint -> هيجيب تصنيف GS1\n\nبس كده!")
 
-# --- أمر GS1 ---
 async def gpc_command(update, context):
     ok = await request_approval(update, context)
     if not ok:
@@ -417,7 +404,6 @@ async def handle_smart(update, context):
         return
     text = update.message.text.strip()
     low = text.lower()
-    # --- GS1 من غير / : لو بدأ بـ gpc أو gs1 ---
     if low.startswith("gpc ") or low.startswith("gs1 ") or low.startswith("/gpc"):
         q = text.replace("/gpc", "").replace("gpc", "").replace("gs1", "").replace("GS1", "").strip()
         if not q:
@@ -519,7 +505,6 @@ async def handle_smart(update, context):
     if len(ex_found) > 1:
         msg += "\n\n🔍 مشابهة:\n"
         for it2 in ex_found[1:4]:
-            # زي التطبيق: كود + عربي + انجليزي + رسم
             msg += f"- [{it2['code']}] {it2.get('desc_ar','')[:40]} | {it2.get('desc_en','')[:40]} | فئة: {it2.get('duty',0)}%\n"
     await update.message.reply_text(msg[:4000])
 
