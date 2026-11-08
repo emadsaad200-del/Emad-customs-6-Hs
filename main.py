@@ -87,6 +87,87 @@ if fname and not os.path.exists("items_v2.db"):
     conn.close()
     print(f"Built items.db: {len(all_codes)} items | AR: {len(ar)} | EN: {len(en)}", flush=True)
 
+# =========================================================
+# 1-B - بناء جدول GS1 GPC: بيصغر الاكسيل جوه البوت
+# الاكسيل الأصلي 183 ألف صف، احنا بناخد كل Brick مرة واحدة بس = 5249
+# =========================================================
+def build_gs1():
+    gs1_file = None
+    for n in ["gs1_exle.xlsx", "gs1_exle.XLSX", "GS1.xlsx"]:
+        if os.path.exists(n):
+            gs1_file = n
+            break
+    if not gs1_file:
+        print("GS1: file not found, skip", flush=True)
+        return
+    try:
+        conn = sqlite3.connect("items.db")
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='gs1_bricks'")
+        if cur.fetchone():
+            cur.execute("SELECT COUNT(*) FROM gs1_bricks")
+            c = cur.fetchone()[0]
+            conn.close()
+            print(f"GS1 already built: {c} bricks", flush=True)
+            return
+        print(f"GS1 building from {gs1_file} ...", flush=True)
+        cur.execute("DROP TABLE IF EXISTS gs1_bricks")
+        cur.execute("CREATE TABLE gs1_bricks (brick_code TEXT PRIMARY KEY, brick_title TEXT, segment_title TEXT, family_title TEXT, class_title TEXT, includes_text TEXT, excludes_text TEXT)")
+        wb = openpyxl.load_workbook(gs1_file, read_only=True, data_only=True)
+        ws = wb.active
+        seen = set()
+        count = 0
+        # أول صف هو الهيدر: SegmentCode, SegmentTitle, FamilyCode, FamilyTitle, ClassCode, ClassTitle, BrickCode, BrickTitle, BrickDefinition_Includes, BrickDefinition_Excludes ...
+        # الترتيب: 0 SegmentCode, 1 SegmentTitle, 2 SegmentDefinition, 3 FamilyCode, 4 FamilyTitle, 5 FamilyDefinition, 6 ClassCode, 7 ClassTitle, 8 ClassDefinition, 9 BrickCode, 10 BrickTitle, 11 Includes, 12 Excludes
+        first = True
+        for row in ws.iter_rows(values_only=True):
+            if first:
+                first = False
+                continue
+            if not row or len(row) < 11:
+                continue
+            brick_code = str(row[9]).strip() if row[9] else ""
+            if not brick_code or brick_code in seen or brick_code == "BrickCode":
+                continue
+            seen.add(brick_code)
+            brick_title = str(row[10] or "").strip()
+            segment_title = str(row[1] or "").strip()
+            family_title = str(row[4] or "").strip()
+            class_title = str(row[7] or "").strip()
+            inc = str(row[11] or "").strip()[:800]
+            exc = str(row[12] or "").strip()[:800]
+            cur.execute("INSERT OR IGNORE INTO gs1_bricks VALUES (?,?,?,?,?,?,?)",
+                        (brick_code, brick_title, segment_title, family_title, class_title, inc, exc))
+            count += 1
+            if count % 1000 == 0:
+                conn.commit()
+        conn.commit()
+        conn.close()
+        print(f"GS1 built: {count} bricks", flush=True)
+    except Exception as e:
+        print(f"GS1 build error: {e}", flush=True)
+
+build_gs1()
+
+def search_gs1(query):
+    query = query.strip()
+    if len(query) < 2:
+        return []
+    try:
+        conn = sqlite3.connect("items.db")
+        cur = conn.cursor()
+        # بحث بالكود أو بالاسم
+        if query.replace(" ", "").isdigit():
+            cur.execute("SELECT brick_code, brick_title, segment_title, family_title, class_title, includes_text, excludes_text FROM gs1_bricks WHERE brick_code LIKE ? LIMIT 5", (query + "%",))
+        else:
+            cur.execute("SELECT brick_code, brick_title, segment_title, family_title, class_title, includes_text, excludes_text FROM gs1_bricks WHERE brick_title LIKE ? LIMIT 5", ("%" + query + "%",))
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"GS1 search error: {e}", flush=True)
+        return []
+
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -303,7 +384,32 @@ async def start(update, context):
     ok = await request_approval(update, context)
     if not ok:
         return
-    await update.message.reply_text("اهلا بيك في بوت Logistics Group\n\nجرب تبعت بس من غير اوامر:\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n\nبس كده!")
+    await update.message.reply_text("اهلا بيك في بوت Logistics Group\n\nجرب تبعت بس من غير اوامر:\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n/gpc paint -> هيجيب تصنيف GS1\n\nبس كده!")
+
+# --- أمر GS1 ---
+async def gpc_command(update, context):
+    ok = await request_approval(update, context)
+    if not ok:
+        return
+    if not context.args:
+        await update.message.reply_text("اكتب كده:\n/gpc paint\n/gpc milk\n/gpc 10001686")
+        return
+    q = " ".join(context.args).strip()
+    rows = search_gs1(q)
+    if not rows:
+        await update.message.reply_text(f"❌ مفيش Brick لـ: {q}\nجرب كلمة انجليزي زي paint / milk / cheese")
+        return
+    for r in rows:
+        msg = f"🧱 GS1 Brick: {r[1]}\n"
+        msg += f"🔢 Brick Code: {r[0]}\n"
+        msg += f"📂 Segment: {r[2]}\n"
+        msg += f"📁 Family: {r[3]}\n"
+        msg += f"📄 Class: {r[4]}\n"
+        if r[5]:
+            msg += f"\n✅ Includes: {r[5][:350]}\n"
+        if r[6]:
+            msg += f"\n⛔ Excludes: {r[6][:350]}"
+        await update.message.reply_text(msg[:4000])
 
 async def handle_smart(update, context):
     ok = await request_approval(update, context)
@@ -311,6 +417,20 @@ async def handle_smart(update, context):
         return
     text = update.message.text.strip()
     low = text.lower()
+    # --- GS1 من غير / : لو بدأ بـ gpc أو gs1 ---
+    if low.startswith("gpc ") or low.startswith("gs1 ") or low.startswith("/gpc"):
+        q = text.replace("/gpc", "").replace("gpc", "").replace("gs1", "").replace("GS1", "").strip()
+        if not q:
+            await update.message.reply_text("اكتب كده:\n/gpc paint")
+            return
+        rows = search_gs1(q)
+        if not rows:
+            await update.message.reply_text(f"❌ مفيش Brick لـ: {q}")
+            return
+        for r in rows:
+            msg = f"🧱 GS1 Brick: {r[1]}\n🔢 Brick Code: {r[0]}\n📂 Segment: {r[2]}\n📁 Family: {r[3]}\n📄 Class: {r[4]}"
+            await update.message.reply_text(msg[:4000])
+        return
     if "منشور" in low or "manshour" in low or "قرار" in low:
         num = "".join([c for c in text if c.isdigit()])
         if not num:
@@ -464,6 +584,7 @@ if TOKEN:
     print("Bot polling started...", flush=True)
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("gpc", gpc_command))
     app.add_handler(CommandHandler("users", admin_list))
     app.add_handler(CommandHandler("remove", remove_user))
     app.add_handler(CallbackQueryHandler(button_callback))
