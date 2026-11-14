@@ -436,7 +436,7 @@ async def request_approval(update, context):
     user = update.effective_user
     if user.id in allowed_users or user.id == ADMIN_ID:
         return True
-  if str(user.id) in pending_users:
+    if str(user.id) in pending_users:
          await update.message.reply_text("طلبك قيد المراجعة")
         return False
     pending_users[str(user.id)] = {"name": user.full_name, "username": user.username}
