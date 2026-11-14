@@ -34,6 +34,18 @@ def save_json(path, data):
     except Exception as e:
         print("save error", e, flush=True)
 
+def fmt0(x):
+    try:
+        return format(float(x), ",.0f")
+    except Exception:
+        return "0"
+
+def fmt2(x):
+    try:
+        return format(float(x), ",.2f")
+    except Exception:
+        return "0.00"
+
 allowed_users = set(load_json(ALLOWED_FILE, []))
 pending_users = load_json(PENDING_FILE, {})
 pending_invoices = {}
@@ -238,16 +250,16 @@ def format_invoice_preview(inv):
     msg = "📋 مراجعة الفاتورة:\n\n"
     msg += "المورد: " + str(inv.get("supplier", "")) + "\n"
     msg += "المنشأ: " + str(inv.get("origin", "")) + "\n"
-    msg += "القيمة: "
-    msg += f"{inv.get('total_foreign', 0):,.0f} "
+    msg += "القيمة: " + fmt0(inv.get("total_foreign", 0)) + " "
     msg += str(inv.get("currency", "USD")) + "\n"
     msg += "التسليم: " + str(inv.get("incoterm", "FOB")) + "\n"
-    msg += f"سعر الدولار: {inv.get('usd_rate', 0):.2f} ج\n\n"
+    msg += "سعر الدولار: " + fmt2(inv.get("usd_rate", 0)) + " ج\n\n"
     for it in inv.get("items", []):
         msg += "• " + str(it.get("name", ""))
         msg += " | بند " + str(it.get("code", ""))
-        msg += f" | {it.get('qty', 0)} × {it.get('price', 0)}"
-        msg += f" = {it.get('total', 0):,.0f}\n"
+        msg += " | " + str(it.get("qty", 0))
+        msg += " × " + str(it.get("price", 0))
+        msg += " = " + fmt0(it.get("total", 0)) + "\n"
     msg += "\nلو صح دوس ✅ صح كمل"
     return msg
 
@@ -402,9 +414,9 @@ async def invoices_command(update, context):
     msg = "🧾 آخر الفواتير:\n\n"
     for r in rows:
         msg += "• " + str(r[0] or "بدون مورد")
-        msg += f" | {r[1]:,.0f} {r[2]}"
-        msg += f" | ضرائب: {r[3]:,.0f} ج"
-        msg += f" | إجمالي: {r[4]:,.0f} ج | {r[5]}\n"
+        msg += " | " + fmt0(r[1]) + " " + str(r[2])
+        msg += " | ضرائب: " + fmt0(r[3]) + " ج"
+        msg += " | إجمالي: " + fmt0(r[4]) + " ج | " + str(r[5]) + "\n"
     await update.message.reply_text(msg[:4000])
 
 async def handle_photo(update, context):
@@ -498,9 +510,9 @@ async def handle_invoice_text(text, update):
     msg = "📋 قريت الفاتورة:\n\n"
     msg += "المورد: " + supplier + "\n"
     msg += "المنشأ: " + origin + "\n"
-    msg += f"القيمة: {total:,.0f} {currency}\n"
+    msg += "القيمة: " + fmt0(total) + " " + currency + "\n"
     msg += "التسليم: " + incoterm + "\n"
-    msg += f"سعر الدولار: {usd_rate:.2f} ج\n\n"
+    msg += "سعر الدولار: " + fmt2(usd_rate) + " ج\n\n"
     msg += "دلوقتي ابعت الأصناف كده:\n"
     msg += "صنف: اسم الصنف | البند | الكمية | السعر\n"
     msg += "مثال: صنف: أقراص طحن | 6804.22 | 1000 | 50"
@@ -542,7 +554,8 @@ async def handle_smart(update, context):
                 "total": qty * price
             })
             await update.message.reply_text(
-                f"✅ أضفت: {name} | بند {code} | {qty} × {price}",
+                "✅ أضفت: " + name + " | بند " + code
+                + " | " + str(qty) + " × " + str(price),
                 reply_markup=invoice_confirm_keyboard()
             )
         except Exception:
@@ -635,15 +648,203 @@ async def handle_smart(update, context):
                     msg += clean_desc(tariff.get("desc_ar")) + "\n"
                 if tariff.get("desc_en"):
                     msg += clean_desc(tariff.get("desc_en")) + "\n"
-                msg += f"قيمة CIF: {cif:,.0f} ج\n\n"
-                msg += f"وارد {duty_p}% = {duty:,.0f} ج\n"
-                msg += f"رسم تنمية {dev_p}% = {dev:,.0f} ج\n"
+                msg += "قيمة CIF: " + fmt0(cif) + " ج\n\n"
+                msg += "وارد " + str(duty_p) + "% = "
+                msg += fmt0(duty) + " ج\n"
+                msg += "رسم تنمية " + str(dev_p) + "% = "
+                msg += fmt0(dev) + " ج\n"
                 if table_p:
-                    msg += f"ضريبة جدول {table_p}% = {tb:,.0f} ج\n"
+                    msg += "ضريبة جدول " + str(table_p) + "% = "
+                    msg += fmt0(tb) + " ج\n"
                 if dump_p:
-                    msg += f"رسم إغراق {dump_p}% = {dm:,.0f} ج\n"
-                msg += f"قيمة مضافة {vat_p}% = {vat:,.0f} ج\n"
+                    msg += "رسم إغراق " + str(dump_p) + "% = "
+                    msg += fmt0(dm) + " ج\n"
+                msg += "قيمة مضافة " + str(vat_p) + "% = "
+                msg += fmt0(vat) + " ج\n"
                 if profit_p:
-                    msg += f"ارباح تجارية {profit_p}% = {profit:,.0f} ج\n"
+                    msg += "ارباح تجارية " + str(profit_p) + "% = "
+                    msg += fmt0(profit) + " ج\n"
                 msg += "----------------\n"
-                msg += f"اجمالي تقديري: {total:
+                msg += "اجمالي تقديري: " + fmt0(total) + " ج\n"
+                msg += "الاجمالي + البضاعة: "
+                msg += fmt0(cif + total) + " ج\n"
+                if tariff.get("notes"):
+                    msg += "\nملاحظة: " + str(tariff.get("notes", ""))
+                await update.message.reply_text(msg)
+                return
+    ex_found, _ = search_combined(text)
+    if not ex_found:
+        await update.message.reply_text(
+            "مفيش نتائج لـ: " + text + "\n"
+            "جرب: منشور 28 - او - 8471 100000"
+        )
+        return
+    it = ex_found[0]
+    tariff = get_tariff(it["clean"])
+    msg = "📦 البند: " + str(it["code"]) + "\n"
+    msg += clean_desc(it.get("desc_ar", "")) + "\n"
+    msg += clean_desc(it.get("desc_en", "")) + "\n"
+    if tariff:
+        msg += "\n💰 وارد: " + str(tariff.get("duty", 0))
+        msg += "% | تنمية: " + str(tariff.get("dev", 0))
+        msg += "% | قيمة مضافة: " + str(tariff.get("vat", 14))
+        msg += "% | ارباح: " + str(tariff.get("profit", 0)) + "%\n"
+        if tariff.get("notes"):
+            msg += "📋 " + str(tariff.get("notes", "")) + "\n"
+    else:
+        msg += "\n💰 النسب: مش موجودة\n"
+    msg += "\n🔗 التأكد من نافذة:\nhttps://www.nafeza.gov.eg/\n\n"
+    msg += "💡 عشان تحسبها ابعت:\n" + it["clean"] + " 100000"
+    if len(ex_found) > 1:
+        msg += "\n\n🔍 مشابهة:\n"
+        for it2 in ex_found[1:4]:
+            msg += "- [" + str(it2["code"]) + "] "
+            msg += str(it2.get("desc_ar", ""))[:40] + " | "
+            msg += str(it2.get("desc_en", ""))[:40] + " | "
+            msg += "فئة: " + str(it2.get("duty", 0)) + "%\n"
+    await update.message.reply_text(msg[:4000])
+
+async def button_callback(update, context):
+    q = update.callback_query
+    await q.answer()
+    if q.data in ["inv_confirm", "inv_edit"]:
+        uid = q.from_user.id
+        if uid not in pending_invoices:
+            await q.edit_message_text(
+                "مفيش فاتورة معلقة، ابعت فاتورة جديدة."
+            )
+            return
+        if q.data == "inv_edit":
+            await q.edit_message_text(
+                "ابعت التعديل كده:\n"
+                "فاتورة: المورد | المنشأ | القيمة | العملة | FOB"
+            )
+            return
+        inv = pending_invoices[uid]
+        if not inv.get("items"):
+            inv["items"] = [{
+                "name": "إجمالي الفاتورة",
+                "code": "",
+                "qty": 1,
+                "price": inv["total_foreign"],
+                "total": inv["total_foreign"]
+            }]
+        result = calc_invoice_egp(inv["items"], inv["usd_rate"])
+        save_invoice(uid, {
+            "supplier": inv["supplier"],
+            "importer": inv.get("importer", ""),
+            "origin": inv["origin"],
+            "currency": inv["currency"],
+            "incoterm": inv["incoterm"],
+            "total_foreign": inv["total_foreign"],
+            "usd_rate": inv["usd_rate"],
+            "cif_egp": result["cif_egp"],
+            "duty_egp": result["duty_egp"],
+            "vat_egp": result["vat_egp"],
+            "profit_egp": result["profit_egp"],
+            "total_tax_egp": result["total_tax_egp"],
+            "grand_total_egp": result["grand_total_egp"],
+            "items": inv["items"]
+        })
+        msg = "✅ تم التأكيد - الحسبة بالمصري\n\n"
+        msg += "المورد: " + str(inv["supplier"]) + "\n"
+        msg += "المنشأ: " + str(inv["origin"]) + "\n"
+        msg += "سعر الدولار: " + fmt2(inv["usd_rate"]) + " ج\n\n"
+        for d in result["details"]:
+            msg += "• " + str(d["name"])
+            msg += " | بند " + str(d["code"])
+            msg += " | CIF: " + fmt0(d["cif_egp"]) + " ج"
+            msg += " | وارد " + str(d["duty_p"]) + "% = "
+            msg += fmt0(d["duty"]) + " ج\n"
+        msg += "\nCIF: " + fmt0(result["cif_egp"]) + " ج\n"
+        msg += "الوارد: " + fmt0(result["duty_egp"]) + " ج\n"
+        msg += "قيمة مضافة: " + fmt0(result["vat_egp"]) + " ج\n"
+        msg += "أ.ت.ص: " + fmt0(result["profit_egp"]) + " ج\n"
+        msg += "تنمية: " + fmt0(result["dev_egp"]) + " ج\n"
+        msg += "----------------\n"
+        msg += "إجمالي الضرائب: " + fmt0(result["total_tax_egp"]) + " ج\n"
+        msg += "الإجمالي + البضاعة: "
+        msg += fmt0(result["grand_total_egp"]) + " ج\n"
+        msg += "\n💾 اتحفظت في /invoices"
+        pending_invoices.pop(uid, None)
+        await q.edit_message_text(msg[:4000])
+        return
+    if q.from_user.id != ADMIN_ID:
+        await q.edit_message_text("لست الادمن")
+        return
+    data = q.data
+    if data.startswith("approve_"):
+        uid = int(data.split("_")[1])
+        allowed_users.add(uid)
+        save_json(ALLOWED_FILE, list(allowed_users))
+        pending_users.pop(str(uid), None)
+        save_json(PENDING_FILE, pending_users)
+        await q.edit_message_text(
+            "تمت الموافقة على " + str(uid)
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=uid, text="تمت الموافقة! ابعت /start"
+            )
+        except Exception:
+            pass
+    else:
+        uid = data.split("_")[1]
+        pending_users.pop(uid, None)
+        save_json(PENDING_FILE, pending_users)
+        await q.edit_message_text("تم رفض " + uid)
+
+async def admin_list(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = "👥 المصرح لهم:\n"
+    for uid in allowed_users:
+        text += "• " + str(uid) + "\n"
+    text += "\n⏳ المنتظرين:\n"
+    for pid, info in pending_users.items():
+        text += "• " + str(pid) + " - "
+        text += str(info.get("name", "")) + " @"
+        text += str(info.get("username", "")) + "\n"
+    text += "\nعشان تشيل حد ابعت:\n/remove + الـ ID"
+    await update.message.reply_text(text)
+
+async def remove_user(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not context.args:
+        await update.message.reply_text("ابعت كده:\n/remove 123456789")
+        return
+    try:
+        uid = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("الـ ID لازم يكون رقم")
+        return
+    allowed_users.discard(uid)
+    pending_users.pop(str(uid), None)
+    save_json(ALLOWED_FILE, list(allowed_users))
+    save_json(PENDING_FILE, pending_users)
+    await update.message.reply_text(
+        "✅ تمت إزالة " + str(uid)
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=uid,
+            text="تمت إزالتك من البوت، ابعت /start تاني"
+        )
+    except Exception:
+        pass
+
+if TOKEN:
+    print("Bot polling started...", flush=True)
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("gpc", gpc_command))
+    app.add_handler(CommandHandler("invoices", invoices_command))
+    app.add_handler(CommandHandler("users", admin_list))
+    app.add_handler(CommandHandler("remove", remove_user))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_smart)
+    )
+    app.run_polling()
