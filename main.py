@@ -1,20 +1,58 @@
 import os
 import json
 import re
+import base64
 import unicodedata
 import sqlite3
-# تجاوز ملف items.db المقفول - استخدم ملف جديد
+
 _orig_connect = sqlite3.connect
 def _patched_connect(path, *a, **k):
     if path == "items.db":
         path = "items_v2.db"
     return _orig_connect(path, *a, **k)
 sqlite3.connect = _patched_connect
-import openpyxl
 
-# =========================================================
-# 1- بناء قاعدة البيانات: عربي + انجليزي من ملف الموسوعة
-# =========================================================
+import openpyxl
+import requests
+from bs4 import BeautifulSoup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+
+TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY") or ""
+ADMIN_ID = 1280808746
+ALLOWED_FILE = "allowed_users.json"
+PENDING_FILE = "pending_users.json"
+print("Starting Bot - Easy Mode...", flush=True)
+
+def load_json(file, default):
+    if os.path.exists(file):
+        try:
+            with open(file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+def save_json(file, data):
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+
+allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
+pending_users = load_json(PENDING_FILE, {})
+pending_invoices = {}
+
+def clean_desc(text):
+    if not text:
+        return ""
+    t = str(text).strip()
+    t = unicodedata.normalize('NFKC', t)
+    t = unicodedata.normalize('NFC', t)
+    t = t.replace('ـ', '')
+    t = ' '.join(t.split())
+    return t
+
+# ============ بناء قاعدة البيانات ============
 fname = None
 for n in ["Book1LOGIST TATTEF.xlsx", "Book1LOGIST_TATTEF.xlsx"]:
     if os.path.exists(n):
@@ -54,7 +92,7 @@ if fname and not os.path.exists("items_v2.db"):
             if w and w[-1].replace(".", "").isdigit():
                 try:
                     duty = float(w[-1])
-                except:
+                except Exception:
                     duty = None
         desc = t.replace(code, "").replace("-", " ").strip()
         desc = re.sub(r"\s+\d+(\.\d+)?\s*$", "", desc).strip()
@@ -72,15 +110,11 @@ if fname and not os.path.exists("items_v2.db"):
         desc_en = en.get(code, "")
         desc_combined = (desc_ar + " | " + desc_en).strip(" |")
         clean = code.replace(".", "").replace(" ", "")
-        cur.execute("INSERT INTO items VALUES (?,?,?,?,?,?)",
-                    (code, desc_ar, desc_en, desc_combined + (f" | فئة: {duty}" if duty is not None else ""), clean, duty if duty is not None else 0))
+        cur.execute("INSERT INTO items VALUES (?,?,?,?,?,?)", (code, desc_ar, desc_en, desc_combined + (f" | فئة: {duty}" if duty is not None else ""), clean, duty if duty is not None else 0))
     conn.commit()
     conn.close()
-    print(f"Built items.db: {len(all_codes)} items | AR: {len(ar)} | EN: {len(en)}", flush=True)
+    print(f"Built items.db: {len(all_codes)} items", flush=True)
 
-# =========================================================
-# 1-B - بناء جدول GS1 GPC
-# =========================================================
 def build_gs1():
     gs1_file = None
     for n in ["gs1_exle.xlsx", "gs1 exle.xlsx", "gs1_exle.XLSX", "GS1.xlsx"]:
@@ -88,19 +122,14 @@ def build_gs1():
             gs1_file = n
             break
     if not gs1_file:
-        print("GS1: file not found, skip", flush=True)
         return
     try:
         conn = sqlite3.connect("items.db")
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='gs1_bricks'")
         if cur.fetchone():
-            cur.execute("SELECT COUNT(*) FROM gs1_bricks")
-            c = cur.fetchone()[0]
             conn.close()
-            print(f"GS1 already built: {c} bricks", flush=True)
             return
-        print(f"GS1 building from {gs1_file} ...", flush=True)
         cur.execute("DROP TABLE IF EXISTS gs1_bricks")
         cur.execute("CREATE TABLE gs1_bricks (brick_code TEXT PRIMARY KEY, brick_title TEXT, segment_title TEXT, family_title TEXT, class_title TEXT, includes_text TEXT, excludes_text TEXT)")
         wb = openpyxl.load_workbook(gs1_file, read_only=True, data_only=True)
@@ -124,8 +153,7 @@ def build_gs1():
             class_title = str(row[7] or "").strip()
             inc = str(row[11] or "").strip()[:800]
             exc = str(row[12] or "").strip()[:800]
-            cur.execute("INSERT OR IGNORE INTO gs1_bricks VALUES (?,?,?,?,?,?,?)",
-                        (brick_code, brick_title, segment_title, family_title, class_title, inc, exc))
+            cur.execute("INSERT OR IGNORE INTO gs1_bricks VALUES (?,?,?,?,?,?,?)", (brick_code, brick_title, segment_title, family_title, class_title, inc, exc))
             count += 1
             if count % 1000 == 0:
                 conn.commit()
@@ -155,32 +183,11 @@ def search_gs1(query):
         print(f"GS1 search error: {e}", flush=True)
         return []
 
-# =========================================================
-# 1-C - [جديد] جدول حفظ الفواتير - بالمصري
-# =========================================================
 def init_invoices_db():
     try:
         conn = sqlite3.connect("items.db")
         cur = conn.cursor()
-        cur.execute("""CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            supplier TEXT,
-            importer TEXT,
-            origin TEXT,
-            currency TEXT,
-            incoterm TEXT,
-            total_foreign REAL,
-            usd_rate REAL,
-            cif_egp REAL,
-            duty_egp REAL,
-            vat_egp REAL,
-            profit_egp REAL,
-            total_tax_egp REAL,
-            grand_total_egp REAL,
-            items_json TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )""")
+        cur.execute("CREATE TABLE IF NOT EXISTS invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, supplier TEXT, importer TEXT, origin TEXT, currency TEXT, incoterm TEXT, total_foreign REAL, usd_rate REAL, cif_egp REAL, duty_egp REAL, vat_egp REAL, profit_egp REAL, total_tax_egp REAL, grand_total_egp REAL, items_json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
         conn.commit()
         conn.close()
     except Exception as e:
@@ -192,20 +199,12 @@ def save_invoice(user_id, data):
     try:
         conn = sqlite3.connect("items.db")
         cur = conn.cursor()
-        cur.execute("""INSERT INTO invoices 
-            (user_id, supplier, importer, origin, currency, incoterm, total_foreign, usd_rate, cif_egp, duty_egp, vat_egp, profit_egp, total_tax_egp, grand_total_egp, items_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (user_id, data.get("supplier",""), data.get("importer",""), data.get("origin",""),
-             data.get("currency","USD"), data.get("incoterm","FOB"), data.get("total_foreign",0),
-             data.get("usd_rate",0), data.get("cif_egp",0), data.get("duty_egp",0),
-             data.get("vat_egp",0), data.get("profit_egp",0), data.get("total_tax_egp",0),
-             data.get("grand_total_egp",0), json.dumps(data.get("items",[]), ensure_ascii=False)))
+        cur.execute("INSERT INTO invoices (user_id, supplier, importer, origin, currency, incoterm, total_foreign, usd_rate, cif_egp, duty_egp, vat_egp, profit_egp, total_tax_egp, grand_total_egp, items_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (user_id, data.get("supplier", ""), data.get("importer", ""), data.get("origin", ""), data.get("currency", "USD"), data.get("incoterm", "FOB"), data.get("total_foreign", 0), data.get("usd_rate", 0), data.get("cif_egp", 0), data.get("duty_egp", 0), data.get("vat_egp", 0), data.get("profit_egp", 0), data.get("total_tax_egp", 0), data.get("grand_total_egp", 0), json.dumps(data.get("items", []), ensure_ascii=False)))
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"Save invoice error: {e}", flush=True)
 
-# [جديد] سعر الدولار - بيجيبه من API، ولو فشل بيرجع آخر سعر ثابت
 def get_usd_rate():
     try:
         r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=8)
@@ -216,49 +215,7 @@ def get_usd_rate():
         print(f"USD rate error: {e}", flush=True)
     return 53.48
 
-import requests
-from bs4 import BeautifulSoup
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
-
-TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-ADMIN_ID = 1280808746
-ALLOWED_FILE = "allowed_users.json"
-PENDING_FILE = "pending_users.json"
-print("Starting Bot - Easy Mode...", flush=True)
-
-def load_json(file, default):
-    if os.path.exists(file):
-        try:
-            with open(file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return default
-    return default
-
-def save_json(file, data):
-    with open(file, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-
-allowed_users = set(load_json(ALLOWED_FILE, [ADMIN_ID]))
-pending_users = load_json(PENDING_FILE, {})
-
-# [جديد] حالة الفاتورة الحالية لكل مستخدم - عشان خطوة التأكيد
-pending_invoices = {}
-
-def clean_desc(text):
-    if not text:
-        return ""
-    t = str(text).strip()
-    t = unicodedata.normalize('NFKC', t)
-    t = unicodedata.normalize('NFC', t)
-    t = t.replace('ـ', '')
-    t = ' '.join(t.split())
-    return t
-
-# =========================================================
-# 2- قواعد الرسوم الاضافية - من الملف والقانون
-# =========================================================
+# ============ قواعد الرسوم ============
 VAT_DEFAULT = 14.0
 VAT_EXEMPT_PREFIX = ["2309.9010"]
 DEV_DEFAULT = 0.0
@@ -272,17 +229,21 @@ def get_dev_fee(code):
     if ch in DEV_EXEMPT_CHAPTERS:
         return 0.0
     return DEV_DEFAULT
+
 def get_profit_fee(code, is_factory):
     if is_factory:
         return 0.0
     return PROFIT_DEFAULT
+
 def get_vat(code):
     if any(code.startswith(p) for p in VAT_EXEMPT_PREFIX):
         return 0.0
     return VAT_DEFAULT
+
 def get_table_tax(code):
     clean = code.replace(".", "")
     return TABLE_TAX.get(code, TABLE_TAX.get(clean, TABLE_TAX.get(code[:4], 0)))
+
 def get_dumping(code):
     clean = code.replace(".", "")
     return ANTI_DUMPING.get(code, ANTI_DUMPING.get(clean, ANTI_DUMPING.get(code[:4], 0)))
@@ -292,41 +253,4 @@ if os.path.exists("Tariff.json"):
     tariff_items = load_json("Tariff.json", [])
 
 def get_tariff(code_clean):
-    for t in tariff_items:
-        tc = str(t.get("code", "")).replace(".", "").replace(" ", "")
-        if tc == code_clean or code_clean.startswith(tc) or tc.startswith(code_clean):
-            return t
-    try:
-        conn = sqlite3.connect("items.db")
-        cur = conn.cursor()
-        cur.execute("SELECT code, desc_ar, desc_en, duty FROM items WHERE REPLACE(code,'.','')=?", (code_clean,))
-        row = cur.fetchone()
-        if not row:
-            cur.execute("SELECT code, desc_ar, desc_en, duty FROM items WHERE REPLACE(code,'.','') LIKE ?", (code_clean[:6]+"%",))
-            row = cur.fetchone()
-        conn.close()
-        if row:
-            code_full = row[0]
-            duty = float(row[3] or 0)
-            return {
-                "code": code_full, "duty": duty, "vat": get_vat(code_full),
-                "dev": get_dev_fee(code_full), "table": get_table_tax(code_full),
-                "dumping": get_dumping(code_full), "profit": 0,
-                "desc_ar": row[1] or "", "desc_en": row[2] or "",
-            }
-    except Exception:
-        pass
-    return None
-
-def calc_customs(cif, duty_p, vat_p, profit_p, dev_p=0, table_p=0, dumping_p=0):
-    duty = cif * duty_p / 100
-    dev = cif * dev_p / 100
-    table = (cif + duty) * table_p / 100 if table_p else 0
-    dumping = cif * dumping_p / 100 if dumping_p else 0
-    vat = (cif + duty + dev + table + dumping) * vat_p / 100
-    profit = (cif + duty) * profit_p / 100
-    total = duty + vat + profit + dev + table + dumping
-    return duty, vat, profit, total, dev, table, dumping
-
-# [جديد] حسبة فاتورة كاملة بالمصري - نفس المعادلة اللي ثبتنا عليها
-def calc_invoice_egp(items, usd_rate, freight_egp=0, insurance_eg
+    for
