@@ -436,4 +436,337 @@ async def request_approval(update, context):
     user = update.effective_user
     if user.id in allowed_users or user.id == ADMIN_ID:
         return True
-    if str(user.id) in pending
+  if str(user.id) in pending_users:
+         await update.message.reply_text("طلبك قيد المراجعة")
+        return False
+    pending_users[str(user.id)] = {"name": user.full_name, "username": user.username}
+    save_json(PENDING_FILE, pending_users)
+    await update.message.reply_text("البوت خاص. تم ارسال طلبك للادمن.")
+    btn1 = InlineKeyboardButton(text="موافقة", callback_data="approve_" + str(user.id))
+    btn2 = InlineKeyboardButton(text="رفض", callback_data="reject_" + str(user.id))
+    kb = InlineKeyboardMarkup([[btn1, btn2]])
+    try:
+        await context.bot.send_message(chat_id=ADMIN_ID, text="طلب جديد: " + user.full_name + " ID:" + str(user.id), reply_markup=kb)
+    except Exception:
+        pass
+    return False
+
+async def start(update, context):
+    ok = await request_approval(update, context)
+    if not ok:
+        return
+    await update.message.reply_text("اهلا بيك في بوت Logistics Group\n\nجرب تبعت بس من غير اوامر:\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n/gpc paint -> هيجيب تصنيف GS1\n📸 ابعت صورة فاتورة -> هقراها وأحسبها بالمصري\n/invoices -> آخر الفواتير\n\nبس كده!")
+
+async def gpc_command(update, context):
+    ok = await request_approval(update, context)
+    if not ok:
+        return
+    if not context.args:
+        await update.message.reply_text("اكتب كده:\n/gpc paint\n/gpc milk\n/gpc 10001686")
+        return
+    q = " ".join(context.args).strip()
+    rows = search_gs1(q)
+    if not rows:
+        await update.message.reply_text(f"❌ مفيش Brick لـ: {q}\nجرب كلمة انجليزي زي paint / milk / cheese")
+        return
+    for r in rows:
+        msg = f"🧱 GS1 Brick: {r[1]}\n"
+        msg += f"🔢 Brick Code: {r[0]}\n"
+        msg += f"📂 Segment: {r[2]}\n"
+        msg += f"📁 Family: {r[3]}\n"
+        msg += f"📄 Class: {r[4]}\n"
+        if r[5]:
+            msg += f"\n✅ Includes: {r[5][:350]}\n"
+        if r[6]:
+            msg += f"\n⛔ Excludes: {r[6][:350]}"
+        await update.message.reply_text(msg[:4000])
+
+async def invoices_command(update, context):
+    ok = await request_approval(update, context)
+    if not ok:
+        return
+    try:
+        conn = sqlite3.connect("items.db")
+        cur = conn.cursor()
+        cur.execute("SELECT supplier, total_foreign, currency, total_tax_egp, grand_total_egp, created_at FROM invoices WHERE user_id=? ORDER BY id DESC LIMIT 10", (update.effective_user.id,))
+        rows = cur.fetchall()
+        conn.close()
+    except Exception:
+        rows = []
+    if not rows:
+        await update.message.reply_text("لسه مفيش فواتير محفوظة.\nابعت صورة فاتورة عشان نبدأ.")
+        return
+    msg = "🧾 آخر الفواتير:\n\n"
+    for r in rows:
+        msg += f"• {r[0] or 'بدون مورد'} | {r[1]:,.0f} {r[2]} | ضرائب: {r[3]:,.0f} ج | إجمالي: {r[4]:,.0f} ج | {r[5]}\n"
+    await update.message.reply_text(msg[:4000])
+
+async def handle_photo(update, context):
+    ok = await request_approval(update, context)
+    if not ok:
+        return
+    await update.message.reply_text("📸 وصلت صورة الفاتورة، بقراها... استنى ثواني")
+    try:
+        photo = update.message.photo[-1]
+        f = await context.bot.get_file(photo.file_id)
+        image_bytes = await f.download_as_bytearray()
+        image_bytes = bytes(image_bytes)
+        data = read_invoice_image(image_bytes)
+        if not data:
+            await update.message.reply_text("⚠️ مش قادر أقرا الصورة أوتوماتيك.\nشوف الـ Logs في FadeHost هيقولك سبب الخطأ بالظبط.\n\nأو ابعت البيانات يدوي كده:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB\nمثال:\nفاتورة: Rollmed | الصين | 261152 | USD | FOB")
+            return
+        usd_rate = get_usd_rate()
+        items = []
+        for it in data.get("items", []) or []:
+            qty = float(it.get("qty", 0) or 0)
+            price = float(it.get("price", 0) or 0)
+            total = float(it.get("total", 0) or qty * price)
+            items.append({"name": str(it.get("name", "")), "code": str(it.get("code", "")).replace(".", ""), "qty": qty, "price": price, "total": total})
+        inv = {"supplier": str(data.get("supplier", "")), "importer": str(data.get("importer", "")), "origin": str(data.get("origin", "")), "currency": str(data.get("currency", "USD")).upper() or "USD", "incoterm": str(data.get("incoterm", "FOB")).upper() or "FOB", "total_foreign": float(data.get("total", 0) or 0), "usd_rate": usd_rate, "items": items}
+        pending_invoices[update.effective_user.id] = inv
+        await update.message.reply_text(format_invoice_preview(inv)[:4000], reply_markup=invoice_confirm_keyboard())
+    except Exception as e:
+        print(f"Photo error: {e}", flush=True)
+        await update.message.reply_text("حصل مشكلة في قراءة الصورة. ابعت البيانات يدوي:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB")
+
+async def handle_invoice_text(text, update):
+    try:
+        parts = text.replace("فاتورة:", "").replace("فاتورة", "").strip().split("|")
+        supplier = parts[0].strip() if len(parts) > 0 else ""
+        origin = parts[1].strip() if len(parts) > 1 else ""
+        total = float(parts[2].strip().replace(",", "")) if len(parts) > 2 else 0
+        currency = parts[3].strip().upper() if len(parts) > 3 else "USD"
+        incoterm = parts[4].strip().upper() if len(parts) > 4 else "FOB"
+    except Exception:
+        await update.message.reply_text("صيغة الفاتورة غلط. ابعت كده:\nفاتورة: Rollmed | الصين | 261152 | USD | FOB")
+        return
+    usd_rate = get_usd_rate()
+    pending_invoices[update.effective_user.id] = {"supplier": supplier, "importer": "", "origin": origin, "total_foreign": total, "currency": currency, "incoterm": incoterm, "usd_rate": usd_rate, "items": []}
+    await update.message.reply_text(f"📋 قريت الفاتورة:\n\nالمورد: {supplier}\nالمنشأ: {origin}\nالقيمة: {total:,.0f} {currency}\nالتسليم: {incoterm}\nسعر الدولار: {usd_rate:.2f} ج\n\nدلوقتي ابعت الأصناف كده:\nصنف: اسم الصنف | البند | الكمية | السعر\nمثال: صنف: أقراص طحن | 6804.22 | 1000 | 50\n\nولما تخلص، دوس ✅ صح كمل", reply_markup=invoice_confirm_keyboard())
+
+async def handle_smart(update, context):
+    ok = await request_approval(update, context)
+    if not ok:
+        return
+    text = update.message.text.strip()
+    low = text.lower()
+    if low.startswith("فاتورة"):
+        await handle_invoice_text(text, update)
+        return
+    if low.startswith("صنف:") or low.startswith("صنف"):
+        uid = update.effective_user.id
+        if uid not in pending_invoices:
+            await update.message.reply_text("ابعت الفاتورة الأول كده:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB")
+            return
+        try:
+            p = text.replace("صنف:", "").replace("صنف", "").strip().split("|")
+            name = p[0].strip()
+            code = p[1].strip().replace(".", "") if len(p) > 1 else ""
+            qty = float(p[2].strip()) if len(p) > 2 else 0
+            price = float(p[3].strip()) if len(p) > 3 else 0
+            pending_invoices[uid]["items"].append({"name": name, "code": code, "qty": qty, "price": price, "total": qty * price})
+            await update.message.reply_text(f"✅ أضفت: {name} | بند {code} | {qty} × {price} = {qty*price:,.0f}\nابعت صنف تاني أو دوس ✅ صح كمل", reply_markup=invoice_confirm_keyboard())
+        except Exception:
+            await update.message.reply_text("صيغة الصنف غلط. ابعت كده:\nصنف: أقراص طحن | 6804.22 | 1000 | 50")
+        return
+    if low.startswith("gpc ") or low.startswith("gs1 ") or low.startswith("/gpc"):
+        q = text.replace("/gpc", "").replace("gpc", "").replace("gs1", "").replace("GS1", "").strip()
+        if not q:
+            await update.message.reply_text("اكتب كده:\n/gpc paint")
+            return
+        rows = search_gs1(q)
+        if not rows:
+            await update.message.reply_text(f"❌ مفيش Brick لـ: {q}")
+            return
+        for r in rows:
+            msg = f"🧱 GS1 Brick: {r[1]}\n🔢 Brick Code: {r[0]}\n📂 Segment: {r[2]}\n📁 Family: {r[3]}\n📄 Class: {r[4]}"
+            await update.message.reply_text(msg[:4000])
+        return
+    if "منشور" in low or "manshour" in low or "قرار" in low:
+        num = "".join([c for c in text if c.isdigit()])
+        if not num:
+            await update.message.reply_text("اكتب رقم المنشور: مثال منشور 28")
+            return
+        await update.message.reply_text(f"بدور على منشور {num} ...")
+        try:
+            q = f"منشور جمارك {num} نافذة"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = requests.get("https://www.google.com/search?q=" + q, headers=headers, timeout=12)
+            soup = BeautifulSoup(r.text, "html.parser")
+            found = []
+            for a in soup.find_all("a", href=True):
+                t = a.get_text(strip=True)
+                if len(t) > 20 and num in t:
+                    found.append("• " + t[:120])
+                if len(found) >= 5:
+                    break
+            if found:
+                msg = f"📜 منشور {num} - نتائج البحث:\n\n" + "\n\n".join(found)
+                msg += f"\n\n🔗 شوفه كامل في نافذة:\nhttps://www.nafeza.gov.eg/"
+                msg += f"\n🔗 بحث جوجل:\nhttps://www.google.com/search?q={q.replace(' ', '+')}"
+            else:
+                msg = f"📜 منشور {num}\n\nملقيتوش في البحث التلقائي.\n\nشوفه هنا:\n1- نافذة: https://www.nafeza.gov.eg/\n2- جوجل: https://www.google.com/search?q=منشور+جمارك+{num}\n\nلو لقيته ابعتهولي وانا احفظه."
+            await update.message.reply_text(msg)
+        except Exception:
+            await update.message.reply_text(f"📜 منشور {num}\n\nشوفه هنا:\nhttps://www.nafeza.gov.eg/\nhttps://www.google.com/search?q=منشور+جمارك+{num}")
+        return
+    parts = text.replace(",", " ").split()
+    if len(parts) == 2 and parts[0].replace(".", "").isdigit() and parts[1].replace(".", "").isdigit():
+        code = parts[0].replace(".", "")
+        try:
+            cif = float(parts[1])
+        except Exception:
+            cif = 0
+        tariff = get_tariff(code)
+        if not tariff:
+            await update.message.reply_text(f"البند {code} مش موجود\nجرب بند تاني او ابعت للادمن النسب")
+            return
+        duty_p = float(tariff.get("duty", 0))
+        vat_p = float(tariff.get("vat", 14))
+        profit_p = float(tariff.get("profit") or 1.0)
+        dev_p = float(tariff.get("dev", get_dev_fee(tariff.get("code", code))))
+        table_p = float(tariff.get("table", 0))
+        dumping_p = float(tariff.get("dumping", 0))
+        duty, vat, profit, total, dev, table, dumping = calc_customs(cif, duty_p, vat_p, profit_p, dev_p, table_p, dumping_p)
+        msg = f"🧾 حساب - البند: {code}\n"
+        if tariff.get("desc_ar"):
+            msg += f"{clean_desc(tariff.get('desc_ar'))}\n"
+        if tariff.get("desc_en"):
+            msg += f"{clean_desc(tariff.get('desc_en'))}\n"
+        msg += f"قيمة CIF: {cif:,.0f} ج\n\n"
+        msg += f"وارد {duty_p}% = {duty:,.0f} ج\n"
+        msg += f"رسم تنمية {dev_p}% = {dev:,.0f} ج\n"
+        if table_p:
+            msg += f"ضريبة جدول {table_p}% = {table:,.0f} ج\n"
+        if dumping_p:
+            msg += f"رسم إغراق {dumping_p}% = {dumping:,.0f} ج\n"
+        msg += f"قيمة مضافة {vat_p}% = {vat:,.0f} ج\n"
+        if profit_p:
+            msg += f"ارباح تجارية {profit_p}% = {profit:,.0f} ج\n"
+        msg += "----------------\n"
+        msg += f"اجمالي تقديري: {total:,.0f} ج\n"
+        msg += f"الاجمالي + البضاعة: {cif + total:,.0f} ج\n"
+        if tariff.get('notes'):
+            msg += f"\nملاحظة: {tariff.get('notes','')}"
+        await update.message.reply_text(msg)
+        return
+    ex_found, _ = search_combined(text)
+    if not ex_found:
+        await update.message.reply_text("مفيش نتائج لـ: " + text + "\n\nتأكد ان ملف items.db موجود في FadeHost\nاو جرب: منشور 28 - او - 8471 100000")
+        return
+    it = ex_found[0]
+    tariff = get_tariff(it['clean'])
+    msg = format_item_full(it['code'], it.get('desc_ar', ''), it.get('desc_en', ''), tariff)
+    if tariff:
+        msg += f"\n💰 وارد: {tariff.get('duty',0)}% | تنمية: {tariff.get('dev',0)}% | قيمة مضافة: {tariff.get('vat',14)}% | ارباح: {tariff.get('profit',0)}%\n"
+        if tariff.get('notes'):
+            msg += f"📋 {tariff.get('notes','')}\n"
+    else:
+        msg += "\n💰 النسب: مش موجودة\n"
+    msg += f"\n🔗 التأكد من نافذة:\nhttps://www.nafeza.gov.eg/\n\n"
+    msg += "💡 عشان تحسبها ابعت:\n" + it['clean'] + " 100000"
+    if len(ex_found) > 1:
+        msg += "\n\n🔍 مشابهة:\n"
+        for it2 in ex_found[1:4]:
+            msg += f"- [{it2['code']}] {it2.get('desc_ar','')[:40]} | {it2.get('desc_en','')[:40]} | فئة: {it2.get('duty',0)}%\n"
+    await update.message.reply_text(msg[:4000])
+
+async def button_callback(update, context):
+    q = update.callback_query
+    await q.answer()
+    if q.data in ["inv_confirm", "inv_edit"]:
+        uid = q.from_user.id
+        if uid not in pending_invoices:
+            await q.edit_message_text("مفيش فاتورة معلقة، ابعت فاتورة جديدة.")
+            return
+        if q.data == "inv_edit":
+            await q.edit_message_text("ابعت التعديل كده:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB\nأو ابعت صنف جديد:\nصنف: اسم الصنف | البند | الكمية | السعر")
+            return
+        inv = pending_invoices[uid]
+        if not inv.get("items"):
+            inv["items"] = [{"name": "إجمالي الفاتورة", "code": "", "qty": 1, "price": inv["total_foreign"], "total": inv["total_foreign"]}]
+        result = calc_invoice_egp(inv["items"], inv["usd_rate"])
+        save_invoice(uid, {"supplier": inv["supplier"], "importer": inv.get("importer", ""), "origin": inv["origin"], "currency": inv["currency"], "incoterm": inv["incoterm"], "total_foreign": inv["total_foreign"], "usd_rate": inv["usd_rate"], "cif_egp": result["cif_egp"], "duty_egp": result["duty_egp"], "vat_egp": result["vat_egp"], "profit_egp": result["profit_egp"], "total_tax_egp": result["total_tax_egp"], "grand_total_egp": result["grand_total_egp"], "items": inv["items"]})
+        msg = "✅ تم التأكيد - الحسبة بالمصري\n\n"
+        msg += f"المورد: {inv['supplier']}\nالمنشأ: {inv['origin']}\n"
+        msg += f"سعر الدولار: {inv['usd_rate']:.2f} ج\n\n"
+        for d in result["details"]:
+            msg += f"• {d['name']} | بند {d['code']} | CIF: {d['cif_egp']:,.0f} ج | وارد {d['duty_p']}% = {d['duty']:,.0f} ج\n"
+        msg += f"\nCIF: {result['cif_egp']:,.0f} ج\n"
+        msg += f"الوارد: {result['duty_egp']:,.0f} ج\n"
+        msg += f"قيمة مضافة: {result['vat_egp']:,.0f} ج\n"
+        msg += f"أ.ت.ص: {result['profit_egp']:,.0f} ج\n"
+        msg += f"تنمية: {result['dev_egp']:,.0f} ج\n"
+        msg += f"----------------\n"
+        msg += f"إجمالي الضرائب: {result['total_tax_egp']:,.0f} ج\n"
+        msg += f"الإجمالي + البضاعة: {result['grand_total_egp']:,.0f} ج\n"
+        msg += f"\n💾 اتحفظت في /invoices"
+        pending_invoices.pop(uid, None)
+        await q.edit_message_text(msg[:4000])
+        return
+    if q.from_user.id != ADMIN_ID:
+        await q.edit_message_text("لست الادمن")
+        return
+    data = q.data
+    if data.startswith("approve_"):
+        uid = int(data.split("_")[1])
+        allowed_users.add(uid)
+        save_json(ALLOWED_FILE, list(allowed_users))
+        pending_users.pop(str(uid), None)
+        save_json(PENDING_FILE, pending_users)
+        await q.edit_message_text("تمت الموافقة على " + str(uid))
+        try:
+            await context.bot.send_message(chat_id=uid, text="تمت الموافقة! ابعت /start")
+        except Exception:
+            pass
+    else:
+        uid = data.split("_")[1]
+        pending_users.pop(uid, None)
+        save_json(PENDING_FILE, pending_users)
+        await q.edit_message_text("تم رفض " + uid)
+
+async def admin_list(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = "👥 المصرح لهم:\n"
+    for uid in allowed_users:
+        text += f"• {uid}\n"
+    text += f"\n⏳ المنتظرين:\n"
+    for pid, info in pending_users.items():
+        text += f"• {pid} - {info.get('name','')} @{info.get('username','')}\n"
+    text += "\nعشان تشيل حد ابعت:\n/remove + الـ ID\nمثال: /remove 123456789"
+    await update.message.reply_text(text)
+
+async def remove_user(update, context):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not context.args:
+        await update.message.reply_text("ابعت كده:\n/remove 123456789")
+        return
+    try:
+        uid = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("الـ ID لازم يكون رقم")
+        return
+    allowed_users.discard(uid)
+    pending_users.pop(str(uid), None)
+    save_json(ALLOWED_FILE, list(allowed_users))
+    save_json(PENDING_FILE, pending_users)
+    await update.message.reply_text(f"✅ تمت إزالة {uid}، لو بعت تاني هيجيلك طلب موافقة جديد.")
+    try:
+        await context.bot.send_message(chat_id=uid, text="تمت إزالتك من البوت، لو عايز تدخل تاني ابعت /start وانتظر الموافقة.")
+    except Exception:
+        pass
+
+if TOKEN:
+    print("Bot polling started...", flush=True)
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("gpc", gpc_command))
+    app.add_handler(CommandHandler("invoices", invoices_command))
+    app.add_handler(CommandHandler("users", admin_list))
+    app.add_handler(CommandHandler("remove", remove_user))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_smart))
+    app.run_polling() 
