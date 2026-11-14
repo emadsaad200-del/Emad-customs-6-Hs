@@ -4,6 +4,7 @@ import re
 import base64
 import unicodedata
 import sqlite3
+import urllib.request
 
 _orig_connect = sqlite3.connect
 def _patched_connect(path, *a, **k):
@@ -19,7 +20,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-OPENAI_KEY = os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY") or ""
+GEMINI_KEY = os.getenv("GEMINI_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 ADMIN_ID = 1280808746
 ALLOWED_FILE = "allowed_users.json"
 PENDING_FILE = "pending_users.json"
@@ -371,22 +372,36 @@ def search_combined(query):
             pass
         return [], []
 
-# ============ قراءة صورة الفاتورة ============
+# ============ قراءة صورة الفاتورة - Gemini مجاني ============
 def read_invoice_image(image_bytes):
-    if not OPENAI_KEY:
+    if not GEMINI_KEY:
         return None
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        prompt = "Read this commercial invoice. Return ONLY valid JSON like: {\"supplier\": \"\", \"importer\": \"\", \"origin\": \"\", \"currency\": \"USD\", \"incoterm\": \"FOB\", \"total\": 0, \"items\": [{\"name\": \"\", \"code\": \"\", \"qty\": 0, \"price\": 0, \"total\": 0}]}. If HS code not on invoice, leave code empty. If origin not found, leave empty."
-        headers = {"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"}
-        payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]}], "max_tokens": 2000, "temperature": 0}
-        r = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
-        txt = r.json()["choices"][0]["message"]["content"]
-        txt = txt.strip().replace("```json", "").replace("```", "").strip()
-        data = json.loads(txt)
-        return data
+        prompt = """Read this commercial invoice. Return ONLY valid JSON like:
+        {"supplier": "", "importer": "", "origin": "", "currency": "USD", "incoterm": "FOB", "total": 0, "items": [{"name": "", "code": "", "qty": 0, "price": 0, "total": 0}]}
+        If HS code not on invoice, leave code empty. If origin not found, leave empty."""
+        data = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": "image/jpeg", "data": b64}}
+                ]
+            }]
+        }
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+        text = res["candidates"][0]["content"]["parts"][0]["text"]
+        text = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(text)
     except Exception as e:
-        print(f"OCR error: {e}", flush=True)
+        print(f"Gemini OCR error: {e}", flush=True)
         return None
 
 def invoice_confirm_keyboard():
@@ -491,7 +506,7 @@ async def handle_photo(update, context):
         image_bytes = bytes(image_bytes)
         data = read_invoice_image(image_bytes)
         if not data:
-            await update.message.reply_text("⚠️ مش قادر أقرا الصورة أوتوماتيك (مفيش OPENAI_KEY).\nابعت البيانات كده:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB\nمثال:\nفاتورة: Rollmed | الصين | 261152 | USD | FOB")
+            await update.message.reply_text("⚠️ مش قادر أقرا الصورة أوتوماتيك (مفيش GEMINI_KEY).\nابعت البيانات كده:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB\nمثال:\nفاتورة: Rollmed | الصين | 261152 | USD | FOB")
             return
         usd_rate = get_usd_rate()
         items = []
