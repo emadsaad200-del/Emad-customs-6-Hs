@@ -37,31 +37,18 @@ def save_json(path, data):
         print("save error", e, flush=True)
 
 def fmt0(x):
-    try:
-        return format(float(x), ",.0f")
-    except Exception:
-        return "0"
-
+    try: return format(float(x), ",.0f")
+    except Exception: return "0"
 def fmt2(x):
-    try:
-        return format(float(x), ",.2f")
-    except Exception:
-        return "0.00"
+    try: return format(float(x), ",.2f")
+    except Exception: return "0.00"
 
 allowed_users = set(load_json(ALLOWED_FILE, []))
 pending_users = load_json(PENDING_FILE, {})
 pending_invoices = {}
 
 def clean_desc(s):
-    if not s:
-        return ""
-    return str(s).strip()
-
-def norm_col(c):
-    c = str(c).strip().lower()
-    c = re.sub(r'[\s\-_]+', '', c)
-    c = c.replace('é','e')
-    return c
+    return str(s or "").strip().strip('"').strip()
 
 def find_file(*keywords):
     files = glob.glob("*") + glob.glob("**/*", recursive=True)
@@ -70,89 +57,30 @@ def find_file(*keywords):
         low = f.lower()
         if all(k.lower() in low for k in keywords):
             return f
-    best = None
-    for f in files:
-        low = f.lower()
-        if any(k.lower() in low for k in keywords):
-            best = f
-            break
-    return best
+    return None
 
-def _is_header_row(vals):
-    joined = " ".join([str(v).lower() for v in vals if v is not None])
-    joined_n = norm_col(joined)
-    keys = ["بند", "code", "hs", "وصف", "description", "brick", "item", "goods", "وارد", "duty", "قيمة"]
-    for k in keys:
-        if norm_col(k) in joined_n:
-            return True
-    return False
+def parse_duty(raw):
+    s = str(raw or "").strip()
+    if not s: return 0, ""
+    if "ممنوع" in s: return -1, s
+    if "معف" in s: return 0, "معفاة"
+    m = re.search(r'([\d\.]+)', s.replace(",", "."))
+    if m:
+        try: return float(m.group(1)), s
+        except: return 0, s
+    return 0, s
 
-def _rows_to_dicts(raw_rows):
-    # raw_rows: list of lists, first find header row
-    header_idx = 0
-    for i, r in enumerate(raw_rows[:12]):
-        if _is_header_row(r):
-            header_idx = i
-            break
-    headers = [norm_col(c) for c in raw_rows[header_idx]]
-    out = []
-    for r in raw_rows[header_idx+1:]:
-        d = {}
-        for h, v in zip(headers, r):
-            if not h: continue
-            d[h] = "" if v is None else str(v)
-        # تجاهل سطور فاضية تماما
-        if any(str(v).strip() != "" for v in d.values()):
-            out.append(d)
-    return out
-
-def load_table_file(path):
-    try:
-        if path.lower().endswith(".csv"):
-            import csv
-            with open(path, encoding="utf-8-sig", errors="ignore") as f:
-                reader = list(csv.reader(f))
-            return _rows_to_dicts(reader)
-        else:
-            try:
-                import pandas as pd
-                df = pd.read_excel(path, dtype=str, header=None)
-                df = df.fillna("")
-                raw = df.values.tolist()
-                return _rows_to_dicts(raw)
-            except Exception as e:
-                print("pandas fail", path, e, flush=True)
-                import openpyxl
-                wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-                ws = wb.active
-                rows = list(ws.iter_rows(values_only=True))
-                return _rows_to_dicts(rows)
-    except Exception as e:
-        print("load file error", path, e, flush=True)
-        return []
-    return []
-
-def pick(row, *candidates):
-    for c in candidates:
-        nc = norm_col(c)
-        if nc in row:
-            v = row[nc]
-            if v is not None and str(v).strip() != "":
-                return str(v).strip()
-    return ""
-
-def pick_code_fallback(row):
-    code = pick(row, "code", "hs", "hscode", "hs_code", "بند", "itemcode", "tariffcode", "hscode6", "hscode4", "tariff", "chapter", "heading", "customscode", "البندالجمركي", "البند")
-    if code:
-        return code
-    for v in row.values():
-        vv = str(v).strip().replace(".", "").replace(" ", "")
-        if vv.isdigit() and len(vv) >= 4 and len(vv) <= 10:
-            return vv
-    return ""
+def short_code(code12):
+    c = str(code12).strip().replace(".", "")
+    while len(c) > 4 and c.endswith("00"):
+        c = c[:-2]
+    if len(c) == 4: return c
+    if len(c) == 6: return f"{c[0:4]}.{c[4:6]}"
+    if len(c) == 8: return f"{c[0:4]}.{c[4:6]}.{c[6:8]}"
+    if len(c) == 10: return f"{c[0:4]}.{c[4:6]}.{c[6:8]}.{c[8:10]}"
+    return c
 
 def init_db():
-    # امسح الداتا القديمة البايظة خالص وابني من الاول
     try:
         if os.path.exists("items.db"):
             os.remove("items.db")
@@ -161,85 +89,91 @@ def init_db():
         print("delete db error", e, flush=True)
     conn = sqlite3.connect("items.db")
     cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS tariffs (code TEXT PRIMARY KEY, desc_ar TEXT, desc_en TEXT, duty REAL, vat REAL, profit REAL, dev REAL, table_rate REAL, dumping REAL, notes TEXT)")
-    cur.execute("CREATE TABLE IF NOT EXISTS items (code TEXT, desc_ar TEXT, desc_en TEXT)")
-    cur.execute("CREATE TABLE IF NOT EXISTS gs1 (brick_code TEXT, brick_name TEXT, segment TEXT, family TEXT, class_name TEXT, includes_text TEXT, excludes_text TEXT)")
-    cur.execute("CREATE TABLE IF NOT EXISTS invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, supplier TEXT, importer TEXT, origin TEXT, currency TEXT, incoterm TEXT, total_foreign REAL, usd_rate REAL, cif_egp REAL, duty_egp REAL, vat_egp REAL, profit_egp REAL, total_tax_egp REAL, grand_total_egp REAL, created_at TEXT)")
+    cur.execute("CREATE TABLE tariffs (code TEXT PRIMARY KEY, code12 TEXT, desc_ar TEXT, desc_en TEXT, duty REAL, duty_raw TEXT, procedures TEXT)")
+    cur.execute("CREATE TABLE book_items (code TEXT, desc_ar TEXT)")
+    cur.execute("CREATE TABLE gs1 (brick_code TEXT PRIMARY KEY, brick_name TEXT, segment TEXT, family TEXT, class_name TEXT, includes_text TEXT, excludes_text TEXT)")
+    cur.execute("CREATE TABLE invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, supplier TEXT, importer TEXT, origin TEXT, currency TEXT, incoterm TEXT, total_foreign REAL, usd_rate REAL, cif_egp REAL, duty_egp REAL, vat_egp REAL, profit_egp REAL, total_tax_egp REAL, grand_total_egp REAL, created_at TEXT)")
     conn.commit()
+    # 1 - التعريفة - الملف الاساسي للنسب
     tariff_path = find_file("tariff")
     print("tariff file:", tariff_path, flush=True)
     if tariff_path:
-        rows = load_table_file(tariff_path)
-        print(f"tariff rows {len(rows)}", flush=True)
-        if rows:
-            print("tariff headers:", list(rows[0].keys())[:12], flush=True)
-            print("tariff sample:", rows[0], flush=True)
-        for r in rows:
-            code = pick_code_fallback(r)
-            if not code: continue
-            code = re.sub(r'\.0$', '', code.strip())
-            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "ar", "الوصف", "وصف", "descriptionarabic", "desc", "goods", "item", "البيان", "بيان", "الصنف")
-            desc_en = pick(r, "desc_en", "descriptionen", "english", "en", "description")
-            def num(*names):
-                v = pick(r, *names)
-                try: return float(str(v).replace("%","").replace(",","").strip() or 0)
-                except: return 0
-            duty = num("duty", "وارد", "customs", "duty%", "rate", "customsduty", "فئةالوارد", "فئة")
-            vat = num("vat", "قيمةمضافة", "valueadded", "vat%")
-            if vat == 0: vat = 14
-            profit = num("profit", "ارباح", "ارباح تجارية", "profit%", "at", "profits", "ارباح تجاريه")
-            dev = num("dev", "تنمية", "development", "dev%", "developmenttax", "رسم تنمية")
-            table_rate = num("table", "جدول", "tabletax", "table%", "ضريبةجدول")
-            dumping = num("dumping", "اغراق", "dumping%")
-            notes = pick(r, "notes", "note", "ملاحظات", "remarks", "ملحوظات")
-            cur.execute("INSERT OR REPLACE INTO tariffs VALUES (?,?,?,?,?,?,?,?,?,?)", (code, desc_ar, desc_en, duty, vat, profit, dev, table_rate, dumping, notes))
-        conn.commit()
-    book_path = find_file("book") or find_file("logist") or find_file("tattef")
+        try:
+            import pandas as pd
+            try:
+                df = pd.read_excel(tariff_path, dtype=str)
+            except Exception:
+                df = pd.read_csv(tariff_path, dtype=str, encoding="utf-8-sig")
+            df = df.fillna("")
+            print(f"tariff shape {df.shape} cols {list(df.columns)}", flush=True)
+            for _, row in df.iterrows():
+                vals = [str(x).strip() for x in row.tolist()]
+                if len(vals) < 4: continue
+                code_raw = vals[0].replace(".", "").replace(" ", "").strip()
+                if not code_raw.isdigit(): continue
+                code12 = code_raw.ljust(12, "0")[:12]
+                desc_ar = clean_desc(vals[1])
+                desc_en = clean_desc(vals[2])
+                duty, duty_raw = parse_duty(vals[3])
+                proc = vals[4] if len(vals) > 4 else ""
+                cur.execute("INSERT OR REPLACE INTO tariffs VALUES (?,?,?,?,?,?,?)", (code12, code12, desc_ar, desc_en, duty, duty_raw, proc))
+            conn.commit()
+        except Exception as e:
+            print("tariff load error", e, flush=True)
+    # 2 - Book1 - للبحث فقط - عمود واحد نصي
+    book_path = find_file("book")
     print("book file:", book_path, flush=True)
     if book_path:
-        rows = load_table_file(book_path)
-        print(f"book rows {len(rows)}", flush=True)
-        if rows:
-            print("book headers:", list(rows[0].keys())[:12], flush=True)
-            print("book sample:", rows[0], flush=True)
-        for r in rows:
-            code = pick_code_fallback(r)
-            if not code: continue
-            code = re.sub(r'\.0$', '', code.strip())
-            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "الوصف", "desc", "item", "namear", "البيان", "بيان", "الصنف")
-            desc_en = pick(r, "desc_en", "descriptionen", "english", "nameen", "name")
-            if not desc_ar and not desc_en: continue
-            cur.execute("INSERT INTO items VALUES (?,?,?)", (code, desc_ar, desc_en))
-        conn.commit()
-    cur.execute("SELECT COUNT(*) FROM items")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO items SELECT code, desc_ar, desc_en FROM tariffs")
-        conn.commit()
+        try:
+            import pandas as pd
+            df = pd.read_excel(book_path, dtype=str, header=None)
+            df = df.fillna("")
+            print(f"book shape {df.shape}", flush=True)
+            count_book = 0
+            for _, row in df.iterrows():
+                txt = str(row.tolist()[0] or "").strip()
+                if not txt: continue
+                # دور على كود زي 8471.30 او 8471.49 او 8471.70 في اول السطر
+                m = re.search(r'(\d{4}(?:\.\d{2}){1,3})', txt)
+                if not m: continue
+                code_dot = m.group(1)
+                code_digits = code_dot.replace(".", "")
+                # الوصف = اللي بعد الكود
+                desc = txt[m.end():].strip()
+                desc = re.sub(r'^[-–—\s]+', '', desc).strip()
+                if not desc: continue
+                # شيل كلمة معفاه من الوصف وخليها معلومة لوحدها لو حابب
+                cur.execute("INSERT INTO book_items VALUES (?,?)", (code_digits, desc))
+                count_book += 1
+            conn.commit()
+            print(f"book parsed items: {count_book}", flush=True)
+        except Exception as e:
+            print("book load error", e, flush=True)
+    # 3 - GS1 - 5249 بريك من غير تكرار
     gs1_path = find_file("gs1")
     print("gs1 file:", gs1_path, flush=True)
     if gs1_path:
-        rows = load_table_file(gs1_path)
-        print(f"gs1 rows {len(rows)}", flush=True)
-        if rows:
-            print("gs1 headers:", list(rows[0].keys())[:12], flush=True)
-        cur.execute("DELETE FROM gs1")
-        for r in rows:
-            brick_code = pick(r, "brick_code", "brickcode", "brick", "code")
-            brick_name = pick(r, "brick_name", "brickname", "brick", "name", "title")
-            if not brick_code and not brick_name: continue
-            segment = pick(r, "segment", "segmentname")
-            family = pick(r, "family", "familyname")
-            class_name = pick(r, "class_name", "classname", "class")
-            includes = pick(r, "includes_text", "includes", "include")
-            excludes = pick(r, "excludes_text", "excludes", "exclude")
-            cur.execute("INSERT INTO gs1 VALUES (?,?,?,?,?,?,?)", (brick_code, brick_name, segment, family, class_name, includes, excludes))
-        conn.commit()
+        try:
+            import pandas as pd
+            df = pd.read_excel(gs1_path, dtype=str)
+            df = df.fillna("")
+            print(f"gs1 raw shape {df.shape} cols {list(df.columns)}", flush=True)
+            df = df.drop_duplicates(subset=["BrickCode"])
+            print(f"gs1 distinct bricks {len(df)}", flush=True)
+            for _, row in df.iterrows():
+                bc = str(row.get("BrickCode", "")).strip()
+                bn = str(row.get("BrickTitle", "")).strip()
+                if not bc and not bn: continue
+                cur.execute("INSERT OR REPLACE INTO gs1 VALUES (?,?,?,?,?,?,?)", (bc, bn, str(row.get("SegmentTitle", "")), str(row.get("FamilyTitle", "")), str(row.get("ClassTitle", "")), str(row.get("BrickDefinition_Includes", "")), str(row.get("BrickDefinition_Excludes", ""))))
+            conn.commit()
+        except Exception as e:
+            print("gs1 load error", e, flush=True)
     cur.execute("SELECT COUNT(*) FROM tariffs")
     print("DB built tariffs:", cur.fetchone()[0], flush=True)
+    cur.execute("SELECT COUNT(*) FROM book_items")
+    print("DB built book_items:", cur.fetchone()[0], flush=True)
     cur.execute("SELECT COUNT(*) FROM gs1")
     print("DB built gs1:", cur.fetchone()[0], flush=True)
-    cur.execute("SELECT COUNT(*) FROM items")
-    print("DB built items:", cur.fetchone()[0], flush=True)
     conn.close()
 
 def get_db():
@@ -247,33 +181,32 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-def get_tariff(code):
-    code = str(code).replace(".", "").strip()
+def get_tariff(code_input):
+    q = str(code_input).replace(".", "").replace(" ", "").strip()
+    if not q.isdigit(): return None
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM tariffs WHERE code=?", (code,))
+        q12 = q.ljust(12, "0")[:12]
+        cur.execute("SELECT * FROM tariffs WHERE code=?", (q12,))
         row = cur.fetchone()
         if not row:
-            cur.execute("SELECT * FROM tariffs WHERE code LIKE ?", (code[:4] + "%",))
+            cur.execute("SELECT * FROM tariffs WHERE code LIKE ? ORDER BY code LIMIT 1", (q + "%",))
             row = cur.fetchone()
         conn.close()
-        if row:
-            return dict(row)
+        return dict(row) if row else None
     except Exception as e:
         print("tariff error", e, flush=True)
-    return None
+        return None
 
-def calc_customs(cif, duty_p, vat_p, profit_p, dev_p, table_p, dump_p):
+def calc_customs(cif, duty_p):
+    if duty_p < 0: duty_p = 0
     duty = cif * duty_p / 100
-    dev = cif * dev_p / 100
-    table = cif * table_p / 100
-    dumping = cif * dump_p / 100
-    base = cif + duty + dev + table + dumping
-    vat = base * vat_p / 100
-    profit = base * profit_p / 100
-    total = duty + dev + table + dumping + vat + profit
-    return duty, vat, profit, total, dev, table, dumping
+    base = cif + duty
+    vat = base * 14 / 100
+    profit = base * 1 / 100
+    total = duty + vat + profit
+    return duty, vat, profit, total
 
 def search_combined(text):
     text = text.strip()
@@ -281,17 +214,46 @@ def search_combined(text):
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT code, desc_ar, desc_en FROM items WHERE code LIKE ? OR desc_ar LIKE ? OR desc_en LIKE ? LIMIT 5", ("%" + text + "%", "%" + text + "%", "%" + text + "%"))
-        rows = cur.fetchall()
+        if text.replace(".", "").replace(" ", "").isdigit():
+            q = text.replace(".", "").replace(" ", "")
+            cur.execute("SELECT code, desc_ar, desc_en, duty, duty_raw FROM tariffs WHERE code LIKE ? ORDER BY code LIMIT 5", (q + "%",))
+            rows = cur.fetchall()
+            # لو ملقاش في التعريفة، دور في Book1
+            if not rows:
+                cur.execute("SELECT code, desc_ar FROM book_items WHERE code LIKE ? LIMIT 5", (q + "%",))
+                brow = cur.fetchall()
+                for r in brow:
+                    t = get_tariff(r[0])
+                    duty = t.get("duty", 0) if t else 0
+                    duty_raw = t.get("duty_raw", "") if t else ""
+                    out.append({"code12": r[0], "code": short_code(r[0]), "desc_ar": r[1] or "", "desc_en": "", "duty": duty, "duty_raw": duty_raw, "from_book": True})
+                conn.close()
+                return out
+        else:
+            cur.execute("SELECT code, desc_ar, desc_en, duty, duty_raw FROM tariffs WHERE desc_ar LIKE ? OR desc_en LIKE ? LIMIT 5", ("%" + text + "%", "%" + text + "%"))
+            rows = cur.fetchall()
+            # كمل من Book1 لو النتائج اقل من 5
+            if len(rows) < 5:
+                cur.execute("SELECT code, desc_ar FROM book_items WHERE desc_ar LIKE ? LIMIT 5", ("%" + text + "%",))
+                brow = cur.fetchall()
+                for r in brow:
+                    # متكررش اللي موجود في التعريفة
+                    if any(str(rr[0]).startswith(str(r[0])[:4]) and str(r[1])[:20] in str(rr[1]) for rr in rows):
+                        continue
+                    t = get_tariff(r[0])
+                    duty = t.get("duty", 0) if t else 0
+                    duty_raw = t.get("duty_raw", "") if t else ""
+                    out.append({"code12": r[0], "code": short_code(r[0]), "desc_ar": r[1] or "", "desc_en": "", "duty": duty, "duty_raw": duty_raw, "from_book": True})
+                    if len(rows) + len(out) >= 5: break
         conn.close()
         for r in rows:
-            code = r[0]
-            t = get_tariff(code)
-            d = t.get("duty", 0) if t else 0
-            out.append({"code": code, "clean": str(code).replace(".", ""), "desc_ar": r[1] or "", "desc_en": r[2] or "", "duty": d})
+            out.insert(0, {"code12": r[0], "code": short_code(r[0]), "desc_ar": r[1] or "", "desc_en": r[2] or "", "duty": r[3], "duty_raw": r[4], "from_book": False})
+        # رتب: التعريفة الاول
+        out = sorted(out, key=lambda x: x.get("from_book", False))
+        return out[:5]
     except Exception as e:
         print("search error", e, flush=True)
-    return out, []
+    return out
 
 def search_gs1(q):
     q = q.strip()
@@ -302,8 +264,7 @@ def search_gs1(q):
         cur.execute("SELECT brick_code, brick_name, segment, family, class_name, includes_text, excludes_text FROM gs1 WHERE brick_code LIKE ? OR brick_name LIKE ? OR family LIKE ? OR class_name LIKE ? OR includes_text LIKE ? LIMIT 3", ("%" + q + "%", "%" + q + "%", "%" + q + "%", "%" + q + "%", "%" + q + "%"))
         rows = cur.fetchall()
         conn.close()
-        for r in rows:
-            out.append(r)
+        for r in rows: out.append(r)
     except Exception as e:
         print("gs1 error", e, flush=True)
     return out
@@ -316,11 +277,8 @@ def get_usd_rate():
         return 48.0
 
 def clean_ai_text(txt):
-    txt = txt.strip()
-    txt = txt.replace(chr(96), "").strip()
-    low = txt.lower()
-    if low.startswith("json"):
-        txt = txt[4:].strip()
+    txt = txt.strip().replace(chr(96), "").strip()
+    if txt.lower().startswith("json"): txt = txt[4:].strip()
     return txt
 
 def read_invoice_image(image_bytes):
@@ -331,11 +289,10 @@ def read_invoice_image(image_bytes):
             print("GEMINI_KEY missing", flush=True)
             return None
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        prompt = "اقرا الفاتورة وطلع JSON بس بدون اي كلام زيادة: {\"supplier\":\"\",\"importer\":\"\",\"origin\":\"\",\"currency\":\"USD\",\"incoterm\":\"FOB\",\"total\":0,\"items\":[{\"name\":\"\",\"code\":\"\",\"qty\":0,\"price\":0,\"total\":0}]} لو مش شايف كود اكتب code فارغ. لو الصورة مش فاتورة رجع {\"supplier\":\"\",\"total\":0,\"items\":[]}"
+        prompt = "اقرا الفاتورة وطلع JSON بس: {\"supplier\":\"\",\"importer\":\"\",\"origin\":\"\",\"currency\":\"USD\",\"incoterm\":\"FOB\",\"total\":0,\"items\":[{\"name\":\"\",\"code\":\"\",\"qty\":0,\"price\":0,\"total\":0}]} لو مش شايف كود اكتب code فارغ"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
         payload = {"contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": b64}}]}]}
         r = requests.post(url, json=payload, timeout=60)
-        print("gemini status", r.status_code, flush=True)
         if r.status_code != 200:
             print("gemini error", r.text[:500], flush=True)
             return None
@@ -343,39 +300,29 @@ def read_invoice_image(image_bytes):
         txt = j["candidates"][0]["content"]["parts"][0]["text"]
         txt = clean_ai_text(txt)
         s = txt.find("{"); e = txt.rfind("}")
-        if s != -1 and e != -1:
-            txt = txt[s:e+1]
+        if s != -1 and e != -1: txt = txt[s:e+1]
         return json.loads(txt)
     except Exception as e:
         print("OCR error", e, flush=True)
         return None
 
 def calc_invoice_egp(items, usd_rate):
-    cif_egp = 0; duty_egp = 0; vat_egp = 0; profit_egp = 0; dev_egp = 0
+    cif_egp = 0; duty_egp = 0; vat_egp = 0; profit_egp = 0
     details = []
     for it in items:
         code = str(it.get("code", "")).replace(".", "")
         tot = float(it.get("total", 0) or 0)
         cif = tot * usd_rate
         t = get_tariff(code) if code else None
-        duty_p = float(t.get("duty", 0)) if t else 0
-        vat_p = float(t.get("vat", 14)) if t else 14
-        profit_p = float(t.get("profit", 0) or 0) if t else 0
-        dev_p = float(t.get("dev", 0) or 0) if t else 0
-        duty, vat, profit, tot2, dev, tb, dm = calc_customs(cif, duty_p, vat_p, profit_p, dev_p, 0, 0)
-        cif_egp += cif; duty_egp += duty; vat_egp += vat; profit_egp += profit; dev_egp += dev
+        duty_p = float(t.get("duty", 0)) if t and t.get("duty", 0) >= 0 else 0
+        duty, vat, profit, tot2 = calc_customs(cif, duty_p)
+        cif_egp += cif; duty_egp += duty; vat_egp += vat; profit_egp += profit
         details.append({"name": it.get("name", ""), "code": code, "cif_egp": cif, "duty_p": duty_p, "duty": duty})
-    total_tax = duty_egp + vat_egp + profit_egp + dev_egp
-    grand = cif_egp + total_tax
-    return {"cif_egp": cif_egp, "duty_egp": duty_egp, "vat_egp": vat_egp, "profit_egp": profit_egp, "dev_egp": dev_egp, "total_tax_egp": total_tax, "grand_total_egp": grand, "details": details}
+    total_tax = duty_egp + vat_egp + profit_egp
+    return {"cif_egp": cif_egp, "duty_egp": duty_egp, "vat_egp": vat_egp, "profit_egp": profit_egp, "total_tax_egp": total_tax, "grand_total_egp": cif_egp + total_tax, "details": details}
 
 def format_invoice_preview(inv):
-    msg = "📋 مراجعة الفاتورة:\n\n"
-    msg += "المورد: " + str(inv.get("supplier", "")) + "\n"
-    msg += "المنشأ: " + str(inv.get("origin", "")) + "\n"
-    msg += "القيمة: " + fmt0(inv.get("total_foreign", 0)) + " " + str(inv.get("currency", "USD")) + "\n"
-    msg += "التسليم: " + str(inv.get("incoterm", "FOB")) + "\n"
-    msg += "سعر الدولار: " + fmt2(inv.get("usd_rate", 0)) + " ج\n\n"
+    msg = "📋 مراجعة الفاتورة:\n\nالمورد: " + str(inv.get("supplier", "")) + "\nالمنشأ: " + str(inv.get("origin", "")) + "\nالقيمة: " + fmt0(inv.get("total_foreign", 0)) + " " + str(inv.get("currency", "USD")) + "\nالتسليم: " + str(inv.get("incoterm", "FOB")) + "\nسعر الدولار: " + fmt2(inv.get("usd_rate", 0)) + " ج\n\n"
     for it in inv.get("items", []):
         msg += "• " + str(it.get("name", "")) + " | بند " + str(it.get("code", "")) + " | " + str(it.get("qty", 0)) + " × " + str(it.get("price", 0)) + " = " + fmt0(it.get("total", 0)) + "\n"
     msg += "\nلو صح دوس ✅ صح كمل"
@@ -399,8 +346,7 @@ def save_invoice(user_id, data):
 
 async def request_approval(update, context):
     user = update.effective_user
-    if user.id in allowed_users or user.id == ADMIN_ID:
-        return True
+    if user.id in allowed_users or user.id == ADMIN_ID: return True
     if str(user.id) in pending_users:
         await update.message.reply_text("طلبك قيد المراجعة")
         return False
@@ -410,17 +356,14 @@ async def request_approval(update, context):
     btn1 = InlineKeyboardButton(text="موافقة", callback_data="approve_" + str(user.id))
     btn2 = InlineKeyboardButton(text="رفض", callback_data="reject_" + str(user.id))
     kb = InlineKeyboardMarkup([[btn1, btn2]])
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text="طلب جديد: " + user.full_name + " ID:" + str(user.id), reply_markup=kb)
-    except Exception:
-        pass
+    try: await context.bot.send_message(chat_id=ADMIN_ID, text="طلب جديد: " + user.full_name + " ID:" + str(user.id), reply_markup=kb)
+    except Exception: pass
     return False
 
 async def start(update, context):
     ok = await request_approval(update, context)
     if not ok: return
-    msg = ("اهلا بيك في بوت Logistics Group\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n/gpc paint -> هيجيب تصنيف GS1\n📸 ابعت صورة فاتورة -> هقراها وأحسبها\n/invoices -> آخر الفواتير")
-    await update.message.reply_text(msg)
+    await update.message.reply_text("اهلا بيك في بوت Logistics Group\n\n8471 -> هيجيب البند\nزجاج -> هيجيب البند بالاسم\n8471 100000 -> هيحسبلك الجمارك\nمنشور 28 -> هيجيب المنشور\n/gpc paint -> هيجيب تصنيف GS1\n📸 ابعت صورة فاتورة -> هقراها وأحسبها\n/invoices -> آخر الفواتير")
 
 async def gpc_command(update, context):
     ok = await request_approval(update, context)
@@ -465,10 +408,9 @@ async def handle_photo(update, context):
         photo = update.message.photo[-1]
         f = await context.bot.get_file(photo.file_id)
         image_bytes = await f.download_as_bytearray()
-        image_bytes = bytes(image_bytes)
-        data = read_invoice_image(image_bytes)
+        data = read_invoice_image(bytes(image_bytes))
         if not data:
-            await update.message.reply_text("⚠️ مش قادر أقرا الصورة أوتوماتيك.\nابعت البيانات يدوي:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB")
+            await update.message.reply_text("⚠️ مش قادر أقرا الصورة أوتوماتيك.\nابعت يدوي:\nفاتورة: المورد | المنشأ | القيمة | العملة | FOB")
             return
         usd_rate = get_usd_rate()
         items = []
@@ -525,8 +467,6 @@ async def handle_smart(update, context):
         return
     if low.startswith("gpc ") or low.startswith("gs1 "):
         q = text.replace("gpc", "").replace("gs1", "").replace("GS1", "").strip()
-        if not q:
-            await update.message.reply_text("اكتب كده:\n/gpc paint"); return
         rows = search_gs1(q)
         if not rows:
             await update.message.reply_text("❌ مفيش Brick لـ: " + q); return
@@ -558,42 +498,34 @@ async def handle_smart(update, context):
             await update.message.reply_text("📜 منشور " + num + "\nhttps://www.nafeza.gov.eg/")
         return
     parts = text.replace(",", " ").split()
-    if len(parts) == 2:
-        if parts[0].replace(".", "").isdigit():
-            if parts[1].replace(".", "").isdigit():
-                code = parts[0].replace(".", ""); cif = float(parts[1])
-                tariff = get_tariff(code)
-                if not tariff:
-                    await update.message.reply_text("البند " + code + " مش موجود"); return
-                duty_p = float(tariff.get("duty", 0)); vat_p = float(tariff.get("vat", 14)); profit_p = float(tariff.get("profit") or 1.0); dev_p = float(tariff.get("dev", 0)); table_p = float(tariff.get("table_rate", 0) or tariff.get("table", 0) or 0); dump_p = float(tariff.get("dumping", 0))
-                duty, vat, profit, total, dev, tb, dm = calc_customs(cif, duty_p, vat_p, profit_p, dev_p, table_p, dump_p)
-                msg = "🧾 حساب - البند: " + code + "\n"
-                if tariff.get("desc_ar"): msg += clean_desc(tariff.get("desc_ar")) + "\n"
-                if tariff.get("desc_en"): msg += clean_desc(tariff.get("desc_en")) + "\n"
-                msg += "قيمة CIF: " + fmt0(cif) + " ج\n\nوارد " + str(duty_p) + "% = " + fmt0(duty) + " ج\nرسم تنمية " + str(dev_p) + "% = " + fmt0(dev) + " ج\n"
-                if table_p: msg += "ضريبة جدول " + str(table_p) + "% = " + fmt0(tb) + " ج\n"
-                if dump_p: msg += "رسم إغراق " + str(dump_p) + "% = " + fmt0(dm) + " ج\n"
-                msg += "قيمة مضافة " + str(vat_p) + "% = " + fmt0(vat) + " ج\n"
-                if profit_p: msg += "ارباح تجارية " + str(profit_p) + "% = " + fmt0(profit) + " ج\n"
-                msg += "----------------\nاجمالي تقديري: " + fmt0(total) + " ج\nالاجمالي + البضاعة: " + fmt0(cif + total) + " ج\n"
-                if tariff.get("notes"): msg += "\nملاحظة: " + str(tariff.get("notes", ""))
-                await update.message.reply_text(msg); return
-    ex_found, _ = search_combined(text)
+    if len(parts) == 2 and parts[0].replace(".", "").isdigit() and parts[1].replace(".", "").isdigit():
+        code = parts[0].replace(".", ""); cif = float(parts[1])
+        tariff = get_tariff(code)
+        if not tariff:
+            await update.message.reply_text("البند " + code + " مش موجود"); return
+        if tariff.get("duty", 0) < 0:
+            await update.message.reply_text("⛔ البند " + short_code(tariff["code"]) + " ممنوع استيراده\n" + clean_desc(tariff.get("desc_ar", "")))
+            return
+        duty_p = float(tariff.get("duty", 0))
+        duty, vat, profit, total = calc_customs(cif, duty_p)
+        msg = "🧾 حساب - البند: " + short_code(tariff["code"]) + "\n" + clean_desc(tariff.get("desc_ar")) + "\n" + clean_desc(tariff.get("desc_en")) + "\nقيمة CIF: " + fmt0(cif) + " ج\n\nوارد " + str(duty_p) + "% = " + fmt0(duty) + " ج\nقيمة مضافة 14% = " + fmt0(vat) + " ج\nارباح تجارية 1% = " + fmt0(profit) + " ج\n----------------\nاجمالي تقديري: " + fmt0(total) + " ج\nالاجمالي + البضاعة: " + fmt0(cif + total) + " ج\n"
+        if tariff.get("procedures"): msg += "\n📋 إجراءات: " + str(tariff.get("procedures"))
+        await update.message.reply_text(msg); return
+    ex_found = search_combined(text)
     if not ex_found:
         await update.message.reply_text("مفيش نتائج لـ: " + text + "\nجرب: منشور 28 - او - 8471 100000"); return
     it = ex_found[0]
-    tariff = get_tariff(it["clean"])
-    msg = "📦 البند: " + str(it["code"]) + "\n" + clean_desc(it.get("desc_ar", "")) + "\n" + clean_desc(it.get("desc_en", "")) + "\n"
-    if tariff:
-        msg += "\n💰 وارد: " + str(tariff.get("duty", 0)) + "% | تنمية: " + str(tariff.get("dev", 0)) + "% | قيمة مضافة: " + str(tariff.get("vat", 14)) + "% | ارباح: " + str(tariff.get("profit", 0)) + "%\n"
-        if tariff.get("notes"): msg += "📋 " + str(tariff.get("notes", "")) + "\n"
+    if it["duty"] is not None and it["duty"] < 0:
+        msg = "⛔ البند: " + str(it["code"]) + " ممنوع استيراده\n" + clean_desc(it.get("desc_ar", "")) + "\n" + clean_desc(it.get("desc_en", "")) + "\n"
     else:
-        msg += "\n💰 النسب: مش موجودة\n"
-    msg += "\n🔗 التأكد من نافذة:\nhttps://www.nafeza.gov.eg/\n\n💡 عشان تحسبها ابعت:\n" + it["clean"] + " 100000"
+        msg = "📦 البند: " + str(it["code"]) + "\n" + clean_desc(it.get("desc_ar", "")) + "\n" + clean_desc(it.get("desc_en", "")) + "\n\n💰 وارد: " + str(it.get("duty_raw") or str(it.get("duty", 0)) + "%") + " | قيمة مضافة: 14% | ارباح: 1%\n"
+        if it.get("from_book"):
+            msg += "(من كتاب التعريفة - Book1)\n"
+    msg += "\n🔗 التأكد من نافذة:\nhttps://www.nafeza.gov.eg/\n\n💡 عشان تحسبها ابعت:\n" + it["code"] + " 100000"
     if len(ex_found) > 1:
         msg += "\n\n🔍 مشابهة:\n"
         for it2 in ex_found[1:4]:
-            msg += "- [" + str(it2["code"]) + "] " + str(it2.get("desc_ar", ""))[:40] + " | " + str(it2.get("desc_en", ""))[:40] + " | فئة: " + str(it2.get("duty", 0)) + "%\n"
+            msg += "- [" + str(it2["code"]) + "] " + str(it2.get("desc_ar", ""))[:40] + " | " + str(it2.get("desc_en", ""))[:40] + " | وارد: " + str(it2.get("duty_raw") or it2.get("duty")) + "\n"
     await update.message.reply_text(msg[:4000])
 
 async def button_callback(update, context):
@@ -613,7 +545,7 @@ async def button_callback(update, context):
         msg = "✅ تم التأكيد - الحسبة بالمصري\n\nالمورد: " + str(inv["supplier"]) + "\nالمنشأ: " + str(inv["origin"]) + "\nسعر الدولار: " + fmt2(inv["usd_rate"]) + " ج\n\n"
         for d in result["details"]:
             msg += "• " + str(d["name"]) + " | بند " + str(d["code"]) + " | CIF: " + fmt0(d["cif_egp"]) + " ج | وارد " + str(d["duty_p"]) + "% = " + fmt0(d["duty"]) + " ج\n"
-        msg += "\nCIF: " + fmt0(result["cif_egp"]) + " ج\nالوارد: " + fmt0(result["duty_egp"]) + " ج\nقيمة مضافة: " + fmt0(result["vat_egp"]) + " ج\nأ.ت.ص: " + fmt0(result["profit_egp"]) + " ج\nتنمية: " + fmt0(result["dev_egp"]) + " ج\n----------------\nإجمالي الضرائب: " + fmt0(result["total_tax_egp"]) + " ج\nالإجمالي + البضاعة: " + fmt0(result["grand_total_egp"]) + " ج\n\n💾 اتحفظت في /invoices"
+        msg += "\nCIF: " + fmt0(result["cif_egp"]) + " ج\nالوارد: " + fmt0(result["duty_egp"]) + " ج\nقيمة مضافة: " + fmt0(result["vat_egp"]) + " ج\nأ.ت.ص: " + fmt0(result["profit_egp"]) + " ج\n----------------\nإجمالي الضرائب: " + fmt0(result["total_tax_egp"]) + " ج\nالإجمالي + البضاعة: " + fmt0(result["grand_total_egp"]) + " ج\n\n💾 اتحفظت في /invoices"
         pending_invoices.pop(uid, None)
         await q.edit_message_text(msg[:4000]); return
     if q.from_user.id != ADMIN_ID:
