@@ -14,6 +14,11 @@ from telegram.ext import CommandHandler
 from telegram.ext import MessageHandler
 from telegram.ext import CallbackQueryHandler
 from telegram.ext import filters
+import subprocess
+try:
+    subprocess.run(["python", "update.py"], timeout=120)
+except Exception:
+    pass
 
 TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0") or 0)
