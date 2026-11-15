@@ -66,11 +66,11 @@ def norm_col(c):
 def find_file(*keywords):
     files = glob.glob("*") + glob.glob("**/*", recursive=True)
     files = [f for f in files if os.path.isfile(f)]
-    best = None
     for f in files:
         low = f.lower()
         if all(k.lower() in low for k in keywords):
             return f
+    best = None
     for f in files:
         low = f.lower()
         if any(k.lower() in low for k in keywords):
@@ -78,42 +78,55 @@ def find_file(*keywords):
             break
     return best
 
+def _is_header_row(vals):
+    joined = " ".join([str(v).lower() for v in vals if v is not None])
+    joined_n = norm_col(joined)
+    keys = ["بند", "code", "hs", "وصف", "description", "brick", "item", "goods", "وارد", "duty", "قيمة"]
+    for k in keys:
+        if norm_col(k) in joined_n:
+            return True
+    return False
+
+def _rows_to_dicts(raw_rows):
+    # raw_rows: list of lists, first find header row
+    header_idx = 0
+    for i, r in enumerate(raw_rows[:12]):
+        if _is_header_row(r):
+            header_idx = i
+            break
+    headers = [norm_col(c) for c in raw_rows[header_idx]]
+    out = []
+    for r in raw_rows[header_idx+1:]:
+        d = {}
+        for h, v in zip(headers, r):
+            if not h: continue
+            d[h] = "" if v is None else str(v)
+        # تجاهل سطور فاضية تماما
+        if any(str(v).strip() != "" for v in d.values()):
+            out.append(d)
+    return out
+
 def load_table_file(path):
     try:
         if path.lower().endswith(".csv"):
             import csv
             with open(path, encoding="utf-8-sig", errors="ignore") as f:
-                r = csv.DictReader(f)
-                rows = []
-                for row in r:
-                    nr = {}
-                    for k,v in row.items():
-                        if k is None: continue
-                        nr[norm_col(k)] = v
-                    rows.append(nr)
-                return rows
+                reader = list(csv.reader(f))
+            return _rows_to_dicts(reader)
         else:
             try:
                 import pandas as pd
-                df = pd.read_excel(path, dtype=str)
+                df = pd.read_excel(path, dtype=str, header=None)
                 df = df.fillna("")
-                df.columns = [norm_col(c) for c in df.columns]
-                return df.to_dict("records")
+                raw = df.values.tolist()
+                return _rows_to_dicts(raw)
             except Exception as e:
                 print("pandas fail", path, e, flush=True)
                 import openpyxl
                 wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
                 ws = wb.active
                 rows = list(ws.iter_rows(values_only=True))
-                if not rows: return []
-                headers = [norm_col(c) for c in rows[0]]
-                out = []
-                for r in rows[1:]:
-                    d = {}
-                    for h,v in zip(headers, r):
-                        d[h] = "" if v is None else str(v)
-                    out.append(d)
-                return out
+                return _rows_to_dicts(rows)
     except Exception as e:
         print("load file error", path, e, flush=True)
         return []
@@ -129,7 +142,7 @@ def pick(row, *candidates):
     return ""
 
 def pick_code_fallback(row):
-    code = pick(row, "code", "hs", "hscode", "hs_code", "بند", "itemcode", "tariffcode", "hscode6", "hscode4", "tariff", "chapter", "heading", "hscode", "customscode")
+    code = pick(row, "code", "hs", "hscode", "hs_code", "بند", "itemcode", "tariffcode", "hscode6", "hscode4", "tariff", "chapter", "heading", "customscode", "البندالجمركي", "البند")
     if code:
         return code
     for v in row.values():
@@ -139,6 +152,13 @@ def pick_code_fallback(row):
     return ""
 
 def init_db():
+    # امسح الداتا القديمة البايظة خالص وابني من الاول
+    try:
+        if os.path.exists("items.db"):
+            os.remove("items.db")
+            print("deleted old items.db", flush=True)
+    except Exception as e:
+        print("delete db error", e, flush=True)
     conn = sqlite3.connect("items.db")
     cur = conn.cursor()
     cur.execute("CREATE TABLE IF NOT EXISTS tariffs (code TEXT PRIMARY KEY, desc_ar TEXT, desc_en TEXT, duty REAL, vat REAL, profit REAL, dev REAL, table_rate REAL, dumping REAL, notes TEXT)")
@@ -146,17 +166,6 @@ def init_db():
     cur.execute("CREATE TABLE IF NOT EXISTS gs1 (brick_code TEXT, brick_name TEXT, segment TEXT, family TEXT, class_name TEXT, includes_text TEXT, excludes_text TEXT)")
     cur.execute("CREATE TABLE IF NOT EXISTS invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, supplier TEXT, importer TEXT, origin TEXT, currency TEXT, incoterm TEXT, total_foreign REAL, usd_rate REAL, cif_egp REAL, duty_egp REAL, vat_egp REAL, profit_egp REAL, total_tax_egp REAL, grand_total_egp REAL, created_at TEXT)")
     conn.commit()
-    try:
-        cur.execute("SELECT COUNT(*) FROM tariffs")
-        c_t = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM gs1")
-        c_g = cur.fetchone()[0]
-        if c_t > 0 and c_g > 0:
-            print(f"DB ready tariffs {c_t} + gs1={c_g}", flush=True)
-            conn.close()
-            return
-    except Exception:
-        pass
     tariff_path = find_file("tariff")
     print("tariff file:", tariff_path, flush=True)
     if tariff_path:
@@ -165,25 +174,24 @@ def init_db():
         if rows:
             print("tariff headers:", list(rows[0].keys())[:12], flush=True)
             print("tariff sample:", rows[0], flush=True)
-        cur.execute("DELETE FROM tariffs")
         for r in rows:
             code = pick_code_fallback(r)
             if not code: continue
             code = re.sub(r'\.0$', '', code.strip())
-            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "ar", "الوصف", "وصف", "descriptionarabic", "desc", "goods", "item")
+            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "ar", "الوصف", "وصف", "descriptionarabic", "desc", "goods", "item", "البيان", "بيان", "الصنف")
             desc_en = pick(r, "desc_en", "descriptionen", "english", "en", "description")
             def num(*names):
                 v = pick(r, *names)
                 try: return float(str(v).replace("%","").replace(",","").strip() or 0)
                 except: return 0
-            duty = num("duty", "وارد", "customs", "duty%", "rate", "customsduty")
+            duty = num("duty", "وارد", "customs", "duty%", "rate", "customsduty", "فئةالوارد", "فئة")
             vat = num("vat", "قيمةمضافة", "valueadded", "vat%")
             if vat == 0: vat = 14
-            profit = num("profit", "ارباح", "ارباح تجارية", "profit%", "at", "profits")
-            dev = num("dev", "تنمية", "development", "dev%", "developmenttax")
-            table_rate = num("table", "جدول", "tabletax", "table%")
+            profit = num("profit", "ارباح", "ارباح تجارية", "profit%", "at", "profits", "ارباح تجاريه")
+            dev = num("dev", "تنمية", "development", "dev%", "developmenttax", "رسم تنمية")
+            table_rate = num("table", "جدول", "tabletax", "table%", "ضريبةجدول")
             dumping = num("dumping", "اغراق", "dumping%")
-            notes = pick(r, "notes", "note", "ملاحظات", "remarks")
+            notes = pick(r, "notes", "note", "ملاحظات", "remarks", "ملحوظات")
             cur.execute("INSERT OR REPLACE INTO tariffs VALUES (?,?,?,?,?,?,?,?,?,?)", (code, desc_ar, desc_en, duty, vat, profit, dev, table_rate, dumping, notes))
         conn.commit()
     book_path = find_file("book") or find_file("logist") or find_file("tattef")
@@ -193,12 +201,12 @@ def init_db():
         print(f"book rows {len(rows)}", flush=True)
         if rows:
             print("book headers:", list(rows[0].keys())[:12], flush=True)
-        cur.execute("DELETE FROM items")
+            print("book sample:", rows[0], flush=True)
         for r in rows:
             code = pick_code_fallback(r)
             if not code: continue
             code = re.sub(r'\.0$', '', code.strip())
-            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "الوصف", "desc", "item", "namear")
+            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "الوصف", "desc", "item", "namear", "البيان", "بيان", "الصنف")
             desc_en = pick(r, "desc_en", "descriptionen", "english", "nameen", "name")
             if not desc_ar and not desc_en: continue
             cur.execute("INSERT INTO items VALUES (?,?,?)", (code, desc_ar, desc_en))
@@ -210,21 +218,22 @@ def init_db():
     gs1_path = find_file("gs1")
     print("gs1 file:", gs1_path, flush=True)
     if gs1_path:
-        cur.execute("SELECT COUNT(*) FROM gs1")
-        if cur.fetchone()[0] == 0:
-            rows = load_table_file(gs1_path)
-            print(f"gs1 rows {len(rows)}", flush=True)
-            for r in rows:
-                brick_code = pick(r, "brick_code", "brickcode", "brick", "code")
-                brick_name = pick(r, "brick_name", "brickname", "brick", "name", "title")
-                if not brick_code and not brick_name: continue
-                segment = pick(r, "segment", "segmentname")
-                family = pick(r, "family", "familyname")
-                class_name = pick(r, "class_name", "classname", "class")
-                includes = pick(r, "includes_text", "includes", "include")
-                excludes = pick(r, "excludes_text", "excludes", "exclude")
-                cur.execute("INSERT INTO gs1 VALUES (?,?,?,?,?,?,?)", (brick_code, brick_name, segment, family, class_name, includes, excludes))
-            conn.commit()
+        rows = load_table_file(gs1_path)
+        print(f"gs1 rows {len(rows)}", flush=True)
+        if rows:
+            print("gs1 headers:", list(rows[0].keys())[:12], flush=True)
+        cur.execute("DELETE FROM gs1")
+        for r in rows:
+            brick_code = pick(r, "brick_code", "brickcode", "brick", "code")
+            brick_name = pick(r, "brick_name", "brickname", "brick", "name", "title")
+            if not brick_code and not brick_name: continue
+            segment = pick(r, "segment", "segmentname")
+            family = pick(r, "family", "familyname")
+            class_name = pick(r, "class_name", "classname", "class")
+            includes = pick(r, "includes_text", "includes", "include")
+            excludes = pick(r, "excludes_text", "excludes", "exclude")
+            cur.execute("INSERT INTO gs1 VALUES (?,?,?,?,?,?,?)", (brick_code, brick_name, segment, family, class_name, includes, excludes))
+        conn.commit()
     cur.execute("SELECT COUNT(*) FROM tariffs")
     print("DB built tariffs:", cur.fetchone()[0], flush=True)
     cur.execute("SELECT COUNT(*) FROM gs1")
@@ -290,7 +299,7 @@ def search_gs1(q):
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT brick_code, brick_name, segment, family, class_name, includes_text, excludes_text FROM gs1 WHERE brick_code LIKE ? OR brick_name LIKE ? OR family LIKE ? OR class_name LIKE ? LIMIT 3", ("%" + q + "%", "%" + q + "%", "%" + q + "%", "%" + q + "%"))
+        cur.execute("SELECT brick_code, brick_name, segment, family, class_name, includes_text, excludes_text FROM gs1 WHERE brick_code LIKE ? OR brick_name LIKE ? OR family LIKE ? OR class_name LIKE ? OR includes_text LIKE ? LIMIT 3", ("%" + q + "%", "%" + q + "%", "%" + q + "%", "%" + q + "%", "%" + q + "%"))
         rows = cur.fetchall()
         conn.close()
         for r in rows:
