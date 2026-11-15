@@ -57,7 +57,6 @@ def clean_desc(s):
         return ""
     return str(s).strip()
 
-# ============ FIX 1: بناء الداتا بيز من الاكسيل تلقائيا ============
 def norm_col(c):
     c = str(c).strip().lower()
     c = re.sub(r'[\s\-_]+', '', c)
@@ -80,7 +79,6 @@ def find_file(*keywords):
     return best
 
 def load_table_file(path):
-    # يرجع list of dicts بأسماء أعمدة منظفة
     try:
         if path.lower().endswith(".csv"):
             import csv
@@ -95,7 +93,6 @@ def load_table_file(path):
                     rows.append(nr)
                 return rows
         else:
-            # xlsx
             try:
                 import pandas as pd
                 df = pd.read_excel(path, dtype=str)
@@ -131,6 +128,16 @@ def pick(row, *candidates):
                 return str(v).strip()
     return ""
 
+def pick_code_fallback(row):
+    code = pick(row, "code", "hs", "hscode", "hs_code", "بند", "itemcode", "tariffcode", "hscode6", "hscode4", "tariff", "chapter", "heading", "hscode", "customscode")
+    if code:
+        return code
+    for v in row.values():
+        vv = str(v).strip().replace(".", "").replace(" ", "")
+        if vv.isdigit() and len(vv) >= 4 and len(vv) <= 10:
+            return vv
+    return ""
+
 def init_db():
     conn = sqlite3.connect("items.db")
     cur = conn.cursor()
@@ -139,53 +146,56 @@ def init_db():
     cur.execute("CREATE TABLE IF NOT EXISTS gs1 (brick_code TEXT, brick_name TEXT, segment TEXT, family TEXT, class_name TEXT, includes_text TEXT, excludes_text TEXT)")
     cur.execute("CREATE TABLE IF NOT EXISTS invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, supplier TEXT, importer TEXT, origin TEXT, currency TEXT, incoterm TEXT, total_foreign REAL, usd_rate REAL, cif_egp REAL, duty_egp REAL, vat_egp REAL, profit_egp REAL, total_tax_egp REAL, grand_total_egp REAL, created_at TEXT)")
     conn.commit()
-
-    # لو الجداول فيها داتا، متبنيش تاني
     try:
         cur.execute("SELECT COUNT(*) FROM tariffs")
-        if cur.fetchone()[0] > 0:
-            cur.execute("SELECT COUNT(*) FROM gs1")
-            print(f"DB ready tariffs + gs1={cur.fetchone()[0]}", flush=True)
+        c_t = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM gs1")
+        c_g = cur.fetchone()[0]
+        if c_t > 0 and c_g > 0:
+            print(f"DB ready tariffs {c_t} + gs1={c_g}", flush=True)
             conn.close()
             return
     except Exception:
         pass
-
-    # --- Tariff ---
     tariff_path = find_file("tariff")
     print("tariff file:", tariff_path, flush=True)
     if tariff_path:
         rows = load_table_file(tariff_path)
         print(f"tariff rows {len(rows)}", flush=True)
+        if rows:
+            print("tariff headers:", list(rows[0].keys())[:12], flush=True)
+            print("tariff sample:", rows[0], flush=True)
+        cur.execute("DELETE FROM tariffs")
         for r in rows:
-            code = pick(r, "code", "hs", "hscode", "hs_code", "بند", "itemcode", "tariffcode")
+            code = pick_code_fallback(r)
             if not code: continue
             code = re.sub(r'\.0$', '', code.strip())
-            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "ar", "الوصف", "وصف", "descriptionarabic", "desc")
+            desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "ar", "الوصف", "وصف", "descriptionarabic", "desc", "goods", "item")
             desc_en = pick(r, "desc_en", "descriptionen", "english", "en", "description")
             def num(*names):
                 v = pick(r, *names)
                 try: return float(str(v).replace("%","").replace(",","").strip() or 0)
                 except: return 0
-            duty = num("duty", "وارد", "customs", "duty%", "rate")
+            duty = num("duty", "وارد", "customs", "duty%", "rate", "customsduty")
             vat = num("vat", "قيمةمضافة", "valueadded", "vat%")
             if vat == 0: vat = 14
-            profit = num("profit", "ارباح", "ارباح تجارية", "profit%", "at")
-            dev = num("dev", "تنمية", "development", "dev%")
+            profit = num("profit", "ارباح", "ارباح تجارية", "profit%", "at", "profits")
+            dev = num("dev", "تنمية", "development", "dev%", "developmenttax")
             table_rate = num("table", "جدول", "tabletax", "table%")
             dumping = num("dumping", "اغراق", "dumping%")
             notes = pick(r, "notes", "note", "ملاحظات", "remarks")
             cur.execute("INSERT OR REPLACE INTO tariffs VALUES (?,?,?,?,?,?,?,?,?,?)", (code, desc_ar, desc_en, duty, vat, profit, dev, table_rate, dumping, notes))
         conn.commit()
-
-    # --- Items / Book1 ---
     book_path = find_file("book") or find_file("logist") or find_file("tattef")
     print("book file:", book_path, flush=True)
     if book_path:
         rows = load_table_file(book_path)
         print(f"book rows {len(rows)}", flush=True)
+        if rows:
+            print("book headers:", list(rows[0].keys())[:12], flush=True)
+        cur.execute("DELETE FROM items")
         for r in rows:
-            code = pick(r, "code", "hs", "hscode", "بند")
+            code = pick_code_fallback(r)
             if not code: continue
             code = re.sub(r'\.0$', '', code.strip())
             desc_ar = pick(r, "desc_ar", "descriptionar", "arabic", "الوصف", "desc", "item", "namear")
@@ -193,33 +203,34 @@ def init_db():
             if not desc_ar and not desc_en: continue
             cur.execute("INSERT INTO items VALUES (?,?,?)", (code, desc_ar, desc_en))
         conn.commit()
-    # لو items فاضي، انسخ من tariffs
     cur.execute("SELECT COUNT(*) FROM items")
     if cur.fetchone()[0] == 0:
         cur.execute("INSERT INTO items SELECT code, desc_ar, desc_en FROM tariffs")
         conn.commit()
-
-    # --- GS1 ---
     gs1_path = find_file("gs1")
     print("gs1 file:", gs1_path, flush=True)
     if gs1_path:
-        rows = load_table_file(gs1_path)
-        print(f"gs1 rows {len(rows)}", flush=True)
-        for r in rows:
-            brick_code = pick(r, "brick_code", "brickcode", "brick", "code")
-            brick_name = pick(r, "brick_name", "brickname", "brick", "name", "title")
-            if not brick_code and not brick_name: continue
-            segment = pick(r, "segment", "segmentname")
-            family = pick(r, "family", "familyname")
-            class_name = pick(r, "class_name", "classname", "class")
-            includes = pick(r, "includes_text", "includes", "include")
-            excludes = pick(r, "excludes_text", "excludes", "exclude")
-            cur.execute("INSERT INTO gs1 VALUES (?,?,?,?,?,?,?)", (brick_code, brick_name, segment, family, class_name, includes, excludes))
-        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM gs1")
+        if cur.fetchone()[0] == 0:
+            rows = load_table_file(gs1_path)
+            print(f"gs1 rows {len(rows)}", flush=True)
+            for r in rows:
+                brick_code = pick(r, "brick_code", "brickcode", "brick", "code")
+                brick_name = pick(r, "brick_name", "brickname", "brick", "name", "title")
+                if not brick_code and not brick_name: continue
+                segment = pick(r, "segment", "segmentname")
+                family = pick(r, "family", "familyname")
+                class_name = pick(r, "class_name", "classname", "class")
+                includes = pick(r, "includes_text", "includes", "include")
+                excludes = pick(r, "excludes_text", "excludes", "exclude")
+                cur.execute("INSERT INTO gs1 VALUES (?,?,?,?,?,?,?)", (brick_code, brick_name, segment, family, class_name, includes, excludes))
+            conn.commit()
     cur.execute("SELECT COUNT(*) FROM tariffs")
     print("DB built tariffs:", cur.fetchone()[0], flush=True)
     cur.execute("SELECT COUNT(*) FROM gs1")
     print("DB built gs1:", cur.fetchone()[0], flush=True)
+    cur.execute("SELECT COUNT(*) FROM items")
+    print("DB built items:", cur.fetchone()[0], flush=True)
     conn.close()
 
 def get_db():
@@ -303,7 +314,6 @@ def clean_ai_text(txt):
         txt = txt[4:].strip()
     return txt
 
-# ============ FIX 2: Gemini بدل OpenAI ============
 def read_invoice_image(image_bytes):
     try:
         import base64
@@ -323,7 +333,6 @@ def read_invoice_image(image_bytes):
         j = r.json()
         txt = j["candidates"][0]["content"]["parts"][0]["text"]
         txt = clean_ai_text(txt)
-        # قص اول { لاخر }
         s = txt.find("{"); e = txt.rfind("}")
         if s != -1 and e != -1:
             txt = txt[s:e+1]
