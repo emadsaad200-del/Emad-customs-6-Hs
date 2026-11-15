@@ -1,72 +1,59 @@
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-import re
-import time
-import shutil
-from datetime import datetime
+import requests, re, os, shutil, glob
 
-FILE = "Book1LOGIST TATTEF.xlsx"
+FILE = glob.glob("*.xlsx")[0]
+print(f"الملف: {FILE}")
 
-# نسخة احتياطية
-shutil.copy(FILE, f"Book1_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
-book = pd.read_excel(FILE)
+# ناخد نسخة احتياطية
+shutil.copy(FILE, FILE.replace(".xlsx", "_backup.xlsx"))
 
-print("الاعمدة اللي لقيناها:", list(book.columns))
+# نقرأ من غير ما نفترض مكان العناوين
+df_raw = pd.read_excel(FILE, header=None)
+print("عدد الصفوف:", len(df_raw))
 
-# لو اسم العمود مختلف، هنلقطه اتوماتيك
-# اول عمود فيه ارقام طويلة = الكود، والعمود اللي فيه % = الفئة
-COL_CODE = None
-COL_CAT = None
-for c in book.columns:
-    s = str(c).strip()
-    if s in ["الكود", "كود", "HS", "HS Code", "hs_code", "البند", "بند"]:
-        COL_CODE = c
-    if "فئة" in s or "الفئة" in s or "ضريبة" in s or "وارد" in s:
-        COL_CAT = c
+# ندور على الصف اللي فيه كلمة بند او كود او HS
+header_row = None
+for i in range(min(15, len(df_raw))):
+    row_text = " ".join([str(x) for x in df_raw.iloc[i].values])
+    if "بند" in row_text or "HS" in row_text or "كود" in row_text or "رمز" in row_text:
+        header_row = i
+        print(f"لقينا العناوين في الصف رقم: {i}")
+        break
 
-# لو ملقيناش، افترض ان اول عمود هو الكود، وتاني عمود فيه % هو الفئة
-if not COL_CODE:
-    COL_CODE = book.columns[0]
-if not COL_CAT:
-    # دور على اي عمود فيه %
-    for c in book.columns:
-        if book[c].astype(str).str.contains("%").any():
-            COL_CAT = c
-            break
+if header_row is None:
+    header_row = 3
+    print("ملقيناش صف عناوين واضح، هنستخدم الصف 3")
 
-print(f"هنستخدم الكود من: {COL_CODE} والفئة من: {COL_CAT}")
+book = pd.read_excel(FILE, header=header_row)
+print("الأعمدة اللي لقيناها:", list(book.columns))
 
-session = requests.Session()
-session.headers.update({"User-Agent": "Mozilla/5.0"})
+# نلاقي عمود الكود وعمود ضريبة الوارد تلقائيا
+cols = [str(c) for c in book.columns]
+col_code = next((c for c in book.columns if any(k in str(c) for k in ["بند", "HS", "كود", "رمز", "Code"])), book.columns[0])
+col_wared = next((c for c in book.columns if "وارد" in str(c)), book.columns[1])
 
-def get_wared_from_gomruky(hs_code):
-    hs = str(hs_code).strip().replace(".0", "").replace(" ", "")
-    hs = hs.ljust(10, "0")[:10]
-    url = f"https://www.gomruky.com/tariff/{hs}"
+print(f"عمود الكود: {col_code} | عمود الوارد: {col_wared}")
+
+def get_wared(code):
     try:
-        r = session.get(url, timeout=15)
-        if r.status_code != 200:
+        code = str(code).strip().split(".")[0]
+        if not code.isdigit():
             return None
-        soup = BeautifulSoup(r.text, 'html.parser')
-        text = soup.get_text(" ", strip=True)
-        m = re.search(r'ضريبة الوارد.*?(\d+(?:\.\d+)?)\s*%', text)
-        if m:
-            val = float(m.group(1))
-            return f"{int(val)}%" if val.is_integer() else f"{val}%"
-        return None
+        url = f"https://www.gomruky.com/tariff/{code}"
+        r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        m = re.search(r"ضريبة الوارد.*?(\d+)", r.text)
+        return m.group(1) if m else None
     except:
         return None
 
 for i, row in book.iterrows():
-    code = row[COL_CODE]
-    new = get_wared_from_gomruky(code)
+    code = row[col_code]
+    new = get_wared(code)
     if new:
-        book.at[i, COL_CAT] = new
+        book.at[i, col_wared] = new
         print(f"{code} -> {new}")
     else:
-        print(f"{code} فشل")
-    time.sleep(0.6)
+        print(f"{code} فشل - مش كود صحيح او الموقع مردش")
 
 book.to_excel(FILE, index=False)
-print("خلصنا!")
+print("تم الحفظ")
