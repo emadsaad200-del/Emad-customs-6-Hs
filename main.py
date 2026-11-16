@@ -22,13 +22,16 @@ def load_table_file(path):
             try:
                 return pd.read_csv(path, dtype=str, low_memory=False, encoding="utf-8-sig")
             except:
-                return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256", errors="ignore")
+                return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256")
         return pd.read_excel(path, dtype=str, engine="openpyxl")
     except:
         try:
             return pd.read_csv(path, dtype=str, low_memory=False, encoding="utf-8-sig")
         except:
-            return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256", errors="ignore")
+            try:
+                return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256")
+            except:
+                return pd.DataFrame()
 
 def norm_col(c):
     return str(c).strip().replace(" ", "").replace("_", "").replace("\n", "")
@@ -36,9 +39,7 @@ def norm_col(c):
 def find_header_row(df_raw):
     for i in range(min(12, len(df_raw))):
         row = " ".join([str(x) for x in df_raw.iloc[i].tolist()]).lower()
-        if ("bnd" in row or "code" in row or "hs" in row):
-            return i
-        if ("wared" in row or "wasf" in row):
+        if "code" in row or "hs" in row:
             return i
     return 0
 
@@ -88,7 +89,6 @@ def clean_val(v):
     s = s.replace("nan", "").replace("none", "").replace("%", "").strip()
     if s == "" or s == "-":
         return None
-    s = s.translate(str.maketrans("0123456789", "0123456789"))
     m = re.search(r"\d+(\.\d+)?", s)
     if not m:
         return None
@@ -111,12 +111,11 @@ def extract_rates(row, df):
             vat = val
         elif "category" in c:
             cat = val
-        elif "arbah" in c or "profit" in c:
+        elif "profit" in c:
             arbah = val
-        elif "wared" in c or "duty" in c or "custom" in c:
+        elif "duty" in c or "custom" in c:
             if wared is None:
                 wared = val
-        # فحص بالعربي بسطور قصيرة
         if "vat" not in c and "category" not in c:
             if "مضاف" in c:
                 vat = val
