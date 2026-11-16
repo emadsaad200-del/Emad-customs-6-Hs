@@ -17,21 +17,19 @@ def find_file(keywords):
 def load_table_file(path):
     if not path or not os.path.exists(path):
         return pd.DataFrame()
+    # الاصلاح 1: جرب Excel الاول دايما، عشان Tariff.xlsx.csv هو Excel مش CSV
     try:
-        if path.lower().endswith(".csv") or ".csv" in path.lower():
-            try:
-                return pd.read_csv(path, dtype=str, low_memory=False, encoding="utf-8-sig")
-            except:
-                return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256")
         return pd.read_excel(path, dtype=str, engine="openpyxl")
     except:
-        try:
-            return pd.read_csv(path, dtype=str, low_memory=False, encoding="utf-8-sig")
-        except:
-            try:
-                return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256")
-            except:
-                return pd.DataFrame()
+        pass
+    try:
+        return pd.read_csv(path, dtype=str, low_memory=False, encoding="utf-8-sig")
+    except:
+        pass
+    try:
+        return pd.read_csv(path, dtype=str, low_memory=False, encoding="cp1256")
+    except:
+        return pd.DataFrame()
 
 def norm_col(c):
     return str(c).strip().replace(" ", "").replace("_", "").replace("\n", "")
@@ -39,7 +37,7 @@ def norm_col(c):
 def find_header_row(df_raw):
     for i in range(min(12, len(df_raw))):
         row = " ".join([str(x) for x in df_raw.iloc[i].tolist()]).lower()
-        if "code" in row or "hs" in row:
+        if "code" in row or "hs" in row or "بند" in row:
             return i
     return 0
 
@@ -75,7 +73,7 @@ def get_col(df, names):
         if nn in cols:
             return cols[nn]
         for k, v in cols.items():
-            if nn in k:
+            if nn in k or k in nn:
                 return v
     return None
 
@@ -134,8 +132,9 @@ def search_in_df(df, q):
         return pd.DataFrame()
     q_clean = clean_code(q)
     q_low = str(q).lower().strip()
-    code_col = get_col(df, ["code", "hs"])
-    desc_col = get_col(df, ["description", "name"])
+    # الاصلاح 2: دور بالعربي والانجليزي مع بعض
+    code_col = get_col(df, ["البند الجمركي", "البند", "الكود", "code", "hs"])
+    desc_col = get_col(df, ["الوصف", "البيان", "الصنف", "description", "name"])
     mask = pd.Series([False]*len(df))
     if code_col and q_clean:
         mask = mask | df[code_col].astype(str).apply(lambda x: q_clean in clean_code(x))
@@ -157,7 +156,7 @@ def get_all_rates(code):
             continue
         row = res.iloc[0]
         if not desc:
-            dc = get_col(df, ["description", "name"])
+            dc = get_col(df, ["الوصف", "البيان", "الصنف", "description", "name"])
             if dc:
                 v = str(row[dc]).strip()
                 if v not in ["", "nan", "None"]:
