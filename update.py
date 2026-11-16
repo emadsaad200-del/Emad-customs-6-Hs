@@ -5,33 +5,46 @@ import shutil
 import glob
 import os
 
-# ============ دالة قراءة أي ملف - جديد - بتحل مشكلة سطر 233 ============
+# ============ دالة قراءة أي ملف - جديد - بتحل مشكلة Tariff.xlsx.csv ============
 def load_file(path):
-    try:
-        if path.endswith(".csv"):
-            for enc in ["cp1256", "utf-8-sig", "windows-1256"]:
-                for sep in [",", ";"]:
-                    try:
-                        df_try = pd.read_csv(
-                            path,
-                            encoding=enc,
-                            sep=sep,
-                            engine="python",
-                            on_bad_lines="skip",
-                            low_memory=False
-                        )
-                        if len(df_try.columns) >= 3:
-                            print(f"اتقرأ {path} بـ {enc} و فاصل {sep} - الأعمدة: {len(df_try.columns)}")
-                            return df_try
-                    except:
-                        continue
-            print(f"فشل قراءة CSV: {path}")
-            return None
-        else:
+    # 1- لو الملف .csv جرب تقراه CSV بكل الطرق
+    if path.endswith(".csv"):
+        for enc in ["cp1256", "utf-8-sig", "windows-1256", "latin1"]:
+            for sep in [",", ";", "\t"]:
+                try:
+                    df_try = pd.read_csv(
+                        path,
+                        encoding=enc,
+                        sep=sep,
+                        engine="python",
+                        on_bad_lines="skip",
+                        low_memory=False
+                    )
+                    if len(df_try.columns) >= 3:
+                        print(f"اتقرأ {path} كـ CSV بـ {enc}")
+                        return df_try
+                except:
+                    continue
+        # 2- لو فشل CSV، جربه Excel - هو ده الحل بتاع Tariff.xlsx.csv
+        # الملف ده اكسيل حقيقي بس اسمه .csv بالغلط
+        print(f"CSV فشل في {path} - هنجربه Excel")
+        try:
+            df_excel = pd.read_excel(path, engine="openpyxl")
+            print(f"اتقرأ {path} كـ Excel - الأعمدة: {len(df_excel.columns)}")
+            return df_excel
+        except Exception as e:
+            print(f"Excel بـ openpyxl فشل في {path}: {e}")
+            try:
+                return pd.read_excel(path)
+            except:
+                return None
+    else:
+        # 3- لو الملف .xlsx اقراه Excel على طول
+        try:
             return pd.read_excel(path)
-    except Exception as e:
-        print(f"فشل {path}: {e}")
-        return None
+        except Exception as e:
+            print(f"فشل {path}: {e}")
+            return None
 
 # ============ ندور على ملف التعريفة الصح لوحده - جديد ============
 def find_tariff_file():
@@ -47,6 +60,7 @@ def find_tariff_file():
         df_try.columns = [str(c).strip() for c in df_try.columns]
         cols = " ".join(df_try.columns)
         print(f"بجرب {f} -> {list(df_try.columns)[:6]}")
+        # الملف الصح لازم يكون فيه بند أو فئة أو وارد
         if "بند" in cols or "فئ" in cols or "وارد" in cols or "HS" in cols:
             print(f"✅ ملف التعريفة الصح هو: {f}")
             return f, df_try.dropna(how="all")
@@ -116,17 +130,23 @@ for i, row in book.iterrows():
         print(f"{code} فشل")
         failed += 1
 
-# ============ حفظ - قديم + جديد - بنفس ترميز الملف الأصلي ============
+# ============ حفظ - قديم + جديد - بنفس نوع الملف الأصلي ============
 try:
     # لو الملف كان csv هنحفظه csv بنفس الترميز اللي اتقرأ بيه
+    # بس لو هو كان اكسيل متسمي csv، هنحفظه Excel صح
     if FILE.endswith(".csv"):
-        book.to_csv(FILE, index=False, encoding="cp1256")
-        print(f"اتحفظ بـ cp1256")
+        # جرب نحفظه Excel الأول عشان هو أصلا Excel
+        try:
+            book.to_excel(FILE, index=False)
+            print(f"اتحفظ كـ Excel في {FILE}")
+        except:
+            book.to_csv(FILE, index=False, encoding="cp1256")
+            print(f"اتحفظ كـ CSV بـ cp1256")
     else:
         book.to_excel(FILE, index=False)
-        print(f"اتحفظ بـ excel")
+        print(f"اتحفظ بـ Excel")
 except Exception as e:
-    print(f"الحفظ بـ cp1256 فشل: {e} - هنجرب utf-8-sig")
+    print(f"الحفظ فشل: {e} - هنجرب utf-8-sig")
     book.to_csv(FILE, index=False, encoding="utf-8-sig")
 
 print(f"تم الحفظ - اتحدث: {updated} - فشل: {failed}")
