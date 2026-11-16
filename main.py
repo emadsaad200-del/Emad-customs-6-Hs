@@ -17,7 +17,6 @@ def find_file(keywords):
 def load_table_file(path):
     if not path or not os.path.exists(path):
         return pd.DataFrame()
-    # الاصلاح 1: جرب Excel الاول دايما، عشان Tariff.xlsx.csv هو Excel مش CSV
     try:
         return pd.read_excel(path, dtype=str, engine="openpyxl")
     except:
@@ -37,7 +36,7 @@ def norm_col(c):
 def find_header_row(df_raw):
     for i in range(min(12, len(df_raw))):
         row = " ".join([str(x) for x in df_raw.iloc[i].tolist()]).lower()
-        if "code" in row or "hs" in row or "بند" in row:
+        if "code" in row or "hs" in row or "بند" in row or "gpc" in row:
             return i
     return 0
 
@@ -63,6 +62,7 @@ df_book = clean_df(load_table_file(BOOK_FILE))
 df_tariff = clean_df(load_table_file(TARIFF_FILE))
 df_gs1 = clean_df(load_table_file(GS1_FILE))
 print(f"DB built book: {len(df_book)} tariffs: {len(df_tariff)} gs1: {len(df_gs1)}")
+print("GS1 columns:", list(df_gs1.columns)[:10])
 
 def get_col(df, names):
     if df.empty:
@@ -80,10 +80,16 @@ def get_col(df, names):
 def clean_code(s):
     return re.sub(r"\D", "", str(s))
 
+def norm_code(s):
+    c = re.sub(r"\D", "", str(s)).lstrip("0")
+    return c if c else "0"
+
 def clean_val(v):
     if v is None:
         return None
     s = str(v).strip().lower()
+    if "غير موجود" in s or "غير" in s:
+        return 0.0
     s = s.replace("nan", "").replace("none", "").replace("%", "").strip()
     if s == "" or s == "-":
         return None
@@ -105,42 +111,47 @@ def extract_rates(row, df):
         val = clean_val(row[col])
         if val is None:
             continue
-        if "vat" in c:
-            vat = val
-        elif "category" in c:
+        if "فئة" in c and "وارد" in c:
             cat = val
-        elif "profit" in c:
+            wared = val
+        elif "vat" in c or "مضاف" in c:
+            vat = val
+        elif "category" in c or "فئة" in c:
+            cat = val
+        elif "profit" in c or "ارباح" in c or "أرباح" in c:
             arbah = val
-        elif "duty" in c or "custom" in c:
+        elif "duty" in c or "custom" in c or "وارد" in c:
             if wared is None:
                 wared = val
-        if "vat" not in c and "category" not in c:
-            if "مضاف" in c:
-                vat = val
-            if "ارباح" in c:
-                arbah = val
-            if "وارد" in c:
-                if wared is None:
-                    wared = val
-            if "فئة" in c:
-                if cat is None:
-                    cat = val
     return cat, wared, vat, arbah
 
 def search_in_df(df, q):
     if df.empty:
         return pd.DataFrame()
-    q_clean = clean_code(q)
+    q_norm = norm_code(q)
     q_low = str(q).lower().strip()
-    # الاصلاح 2: دور بالعربي والانجليزي مع بعض
     code_col = get_col(df, ["البند الجمركي", "البند", "الكود", "code", "hs"])
     desc_col = get_col(df, ["الوصف", "البيان", "الصنف", "description", "name"])
     mask = pd.Series([False]*len(df))
-    if code_col and q_clean:
-        mask = mask | df[code_col].astype(str).apply(lambda x: q_clean in clean_code(x))
+    if code_col and q_norm:
+        mask = mask | df[code_col].astype(str).apply(lambda x: q_norm in norm_code(x) or norm_code(x).startswith(q_norm))
     if desc_col and q_low:
         mask = mask | df[desc_col].astype(str).str.lower().str.contains(re.escape(q_low), na=False)
     return df[mask].head(5)
+
+def search_gs1(q):
+    # الاصلاح بتاع GS1: دور في كل الاعمدة، مش عمود واحد بس
+    if df_gs1.empty:
+        return pd.DataFrame()
+    q_low = str(q).lower().strip()
+    q_norm = norm_code(q)
+    mask = pd.Series([False]*len(df_gs1))
+    for col in df_gs1.columns:
+        col_str = df_gs1[col].astype(str).str.lower()
+        mask = mask | col_str.str.contains(re.escape(q_low), na=False)
+        if q_norm:
+            mask = mask | df_gs1[col].astype(str).apply(lambda x: q_norm in norm_code(x) if norm_code(x) else False)
+    return df_gs1[mask].head(5)
 
 def get_all_rates(code):
     cat = None
@@ -177,7 +188,7 @@ def get_all_rates(code):
     if vat is None:
         vat = 14.0
     if arbah is None:
-        arbah = 1.0
+        arbah = 0.0
     return cat, wared, vat, arbah, desc
 
 async def send_long(message, text):
@@ -187,7 +198,7 @@ async def send_long(message, text):
         await message.reply_text(text[i:i+4000])
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_long(update.message, "بوت الجمارك جاهز!\n/hs 8471 - بحث\n/calc 8471 1000 - حساب كامل\n/gpc 8471 - بحث GS1")
+    await send_long(update.message, "بوت الجمارك جاهز!\n/hs 8471 - بحث جمركي\n/calc 8471 1000 - حساب كامل\n/gpc حليب - بحث GS1 بالاسم\n/gpc Milk - بحث GS1 انجليزي")
 
 async def hs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = " ".join(context.args) if context.args else ""
@@ -199,16 +210,16 @@ async def hs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gpc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = " ".join(context.args) if context.args else ""
     if not q:
-        await send_long(update.message, "ابعت كده: /gpc 8471")
+        await send_long(update.message, "ابعت كده: /gpc حليب او /gpc Milk")
         return
-    res = search_in_df(df_gs1, q)
+    res = search_gs1(q)
     if res.empty:
-        await send_long(update.message, f"مفيش نتيجة في GS1 لـ: {q}")
+        await send_long(update.message, f"مفيش نتيجة في GS1 لـ: {q}\nجرب بالاسم مش بالكود الجمركي، زي: /gpc حليب")
         return
     txt = f"GS1 نتائج: {q}\n\n"
     for _, r in res.iterrows():
         vals = [str(x).strip() for x in r.tolist() if str(x).strip() not in ["", "nan", "None"]]
-        txt += " | ".join(vals[:4]) + "\n---\n"
+        txt += " | ".join(vals[:5]) + "\n---\n"
     await send_long(update.message, txt)
 
 async def calc_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -242,7 +253,7 @@ async def do_search(update, q):
         res = search_in_df(df_book, q)
         src = "Book1"
     if res.empty:
-        res = search_in_df(df_gs1, q)
+        res = search_gs1(q)
         src = "GS1"
     if res.empty:
         await send_long(update.message, f"مفيش نتيجة لـ: {q}")
