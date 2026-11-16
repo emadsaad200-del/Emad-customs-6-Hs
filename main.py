@@ -8,35 +8,46 @@ import telebot
 TOKEN = os.getenv("BOT_TOKEN", "حط_التوكن_هنا_لو_مش_في_الاعدادات")
 bot = telebot.TeleBot(TOKEN)
 
-# ============ تحميل أي ملف - جديد - بيحل مشكلة سطر 233 البايظ ============
+# ============ تحميل أي ملف - جديد - بيحل مشكلة Tariff.xlsx.csv ============
 def load_file(path):
-    try:
-        if path.endswith(".csv"):
-            # جرب كل الترميزات والفواصل لحد ما واحدة تنجح
-            for enc in ["cp1256", "utf-8-sig", "windows-1256"]:
-                for sep in [",", ";"]:
-                    try:
-                        df_try = pd.read_csv(
-                            path,
-                            encoding=enc,
-                            sep=sep,
-                            engine="python",
-                            on_bad_lines="skip",
-                            low_memory=False
-                        )
-                        # لو قرأ 3 أعمدة على الأقل يبقى الـ sep صح
-                        if len(df_try.columns) >= 3:
-                            print(f"اتقرأ {path} بـ {enc} و فاصل {sep} - الأعمدة: {len(df_try.columns)}")
-                            return df_try
-                    except:
-                        continue
-            print(f"فشل قراءة CSV: {path}")
-            return None
-        else:
+    # 1- لو الملف .csv جرب تقراه CSV بكل الطرق
+    if path.endswith(".csv"):
+        for enc in ["cp1256", "utf-8-sig", "windows-1256", "latin1"]:
+            for sep in [",", ";", "\t"]:
+                try:
+                    df_try = pd.read_csv(
+                        path,
+                        encoding=enc,
+                        sep=sep,
+                        engine="python",
+                        on_bad_lines="skip",
+                        low_memory=False
+                    )
+                    if len(df_try.columns) >= 3:
+                        print(f"اتقرأ {path} كـ CSV بـ {enc}")
+                        return df_try
+                except:
+                    continue
+        # 2- لو فشل CSV، جربه Excel - هو ده الحل بتاع Tariff.xlsx.csv
+        # الملف ده اكسيل حقيقي بس اسمه .csv بالغلط
+        print(f"CSV فشل في {path} - هنجربه Excel")
+        try:
+            df_excel = pd.read_excel(path, engine="openpyxl")
+            print(f"اتقرأ {path} كـ Excel - الأعمدة: {len(df_excel.columns)}")
+            return df_excel
+        except Exception as e:
+            print(f"Excel بـ openpyxl فشل في {path}: {e}")
+            try:
+                return pd.read_excel(path)
+            except:
+                return None
+    else:
+        # 3- لو الملف .xlsx اقراه Excel على طول
+        try:
             return pd.read_excel(path)
-    except Exception as e:
-        print(f"فشل {path}: {e}")
-        return None
+        except Exception as e:
+            print(f"فشل {path}: {e}")
+            return None
 
 # ============ ندور على ملف التعريفة الصح لوحده - جديد ============
 def load_tariff():
