@@ -4,74 +4,52 @@ import glob
 import pandas as pd
 import telebot
 
-# ============ الاعدادات ============
-TOKEN = os.getenv("BOT_TOKEN", "حط_التوكن_هنا_لو_مش_في_الاعدادات")
+TOKEN = os.getenv("BOT_TOKEN", "حط_التوكن_هنا")
 bot = telebot.TeleBot(TOKEN)
 
-# ============ تحميل أي ملف - جديد - بيحل مشكلة Tariff.xlsx.csv ============
+# ============ الموقع بتاع تعديل فئة البند - ثابت ومش هنغيره تاني ============
+SITE_URL = "https://www.customs.gov.eg"
+
+# ============ تحميل الملفات ============
 def load_file(path):
-    # 1- لو الملف .csv جرب تقراه CSV بكل الطرق
     if path.endswith(".csv"):
         for enc in ["cp1256", "utf-8-sig", "windows-1256", "latin1"]:
             for sep in [",", ";", "\t"]:
                 try:
-                    df_try = pd.read_csv(
-                        path,
-                        encoding=enc,
-                        sep=sep,
-                        engine="python",
-                        on_bad_lines="skip",
-                        low_memory=False
-                    )
+                    df_try = pd.read_csv(path, encoding=enc, sep=sep, engine="python", on_bad_lines="skip", low_memory=False)
                     if len(df_try.columns) >= 3:
-                        print(f"اتقرأ {path} كـ CSV بـ {enc}")
                         return df_try
                 except:
                     continue
-        # 2- لو فشل CSV، جربه Excel - هو ده الحل بتاع Tariff.xlsx.csv
-        # الملف ده اكسيل حقيقي بس اسمه .csv بالغلط
-        print(f"CSV فشل في {path} - هنجربه Excel")
         try:
-            df_excel = pd.read_excel(path, engine="openpyxl")
-            print(f"اتقرأ {path} كـ Excel - الأعمدة: {len(df_excel.columns)}")
-            return df_excel
-        except Exception as e:
-            print(f"Excel بـ openpyxl فشل في {path}: {e}")
+            return pd.read_excel(path, engine="openpyxl")
+        except:
             try:
                 return pd.read_excel(path)
             except:
                 return None
     else:
-        # 3- لو الملف .xlsx اقراه Excel على طول
         try:
             return pd.read_excel(path)
-        except Exception as e:
-            print(f"فشل {path}: {e}")
+        except:
             return None
 
-# ============ ندور على ملف التعريفة الصح لوحده - جديد ============
 def load_tariff():
     files = glob.glob("*.csv") + glob.glob("*.xlsx")
-    print(f"كل الملفات: {files}")
-    # جرب Tariff الأول
     files_sorted = sorted(files, key=lambda x: 0 if "tariff" in x.lower() else 1)
     for f in files_sorted:
-        if "backup" in f.lower():
+        if "backup" in f.lower() or "gs1" in f.lower():
             continue
         df_try = load_file(f)
         if df_try is None:
             continue
         df_try.columns = [str(c).strip() for c in df_try.columns]
         cols = " ".join(df_try.columns)
-        print(f"بجرب {f} -> {list(df_try.columns)[:6]}")
-        # الملف الصح لازم يكون فيه بند أو فئة أو وارد
-        if "بند" in cols or "فئ" in cols or "وارد" in cols or "HS" in cols:
-            print(f"✅ ملف التعريفة الصح هو: {f}")
+        if "بند" in cols or "فئ" in cols or "وارد" in cols or "HS" in cols or "رمز" in cols:
+            print(f"✅ التعريفة: {f}")
             return df_try.dropna(how="all")
-    print("❌ مفيش ملف فيه بند/فئة/وارد - كل الملفات GS1")
     return pd.DataFrame()
 
-# ============ تحميل ملف GS1 - قديم ============
 def load_gs1():
     try:
         g = pd.read_excel("gs1 exle.xlsx")
@@ -79,111 +57,101 @@ def load_gs1():
         print(f"DB built gs1: {len(g)}")
         return g
     except Exception as e:
-        print(f"GS1 مش متحمل: {e}")
+        print(f"GS1 error: {e}")
         return pd.DataFrame()
 
-# ============ تحميل البيانات ============
 df = load_tariff()
 df_gs1 = load_gs1()
-
 print(f"DB built tariffs: {len(df)}")
-print("الأعمدة:", list(df.columns))
+print("اعمدة التعريفة:", list(df.columns))
+if not df_gs1.empty:
+    print("اعمدة GS1:", list(df_gs1.columns))
 
-# ============ توحيد الأعمدة - فئة = وارد - قديم + جديد ============
 def get_col(dataframe, keys):
     for c in dataframe.columns:
         for k in keys:
-            if k in str(c):
+            if k.lower() in str(c).lower():
                 return c
     return None
 
 COL_CODE = get_col(df, ["بند", "HS", "كود", "رمز"])
-COL_FEA_WARED = get_col(df, ["فئ", "وارد"])  # فئة ووارد واحد
-COL_DESC = get_col(df, ["بيان", "وصف", "سلعة", "اسم", "الصنف"])
-COL_UNIT = get_col(df, ["وحدة", "الوحدة"])
+COL_FEA = get_col(df, ["فئ", "وارد"])
+COL_DESC_AR = get_col(df, ["بيان", "وصف", "الصنف", "سلعة", "عربي"])
+COL_DESC_EN = get_col(df, ["english", "انجليزي", "description", "item", "name"])
+COL_UNIT = get_col(df, ["وحدة"])
+COL_VAT = get_col(df, ["قيمة مضافة", "مضافة", "VAT", "ضريبة"])
+COL_PROFIT = get_col(df, ["ارباح", "أرباح", "تجاري", "صناعي", "profit"])
 
-print(f"عمود الكود: {COL_CODE}")
-print(f"عمود الفئة/الوارد: {COL_FEA_WARED}")
-print(f"عمود البيان: {COL_DESC}")
+if COL_DESC_AR is None and COL_DESC_EN:
+    COL_DESC_AR = COL_DESC_EN
+if COL_DESC_EN is None and COL_DESC_AR:
+    COL_DESC_EN = COL_DESC_AR
 
-# ============ دالة البحث الرئيسية - قديم + جديد ============
-def search(query):
-    query = str(query).strip()
-    if df.empty or COL_CODE is None:
-        return "قاعدة البيانات مش محملة صح - ملف التعريفة فيه مشكلة، اتأكد ان Tariff.xlsx.csv مرفوع صح"
+def normalize_code(x):
+    s = str(x).strip().split(".")[0].strip().replace(" ", "").replace("-", "")
+    if s.isdigit() and len(s) <= 4:
+        s = s.zfill(4)
+    return s
 
-    # 1- بحث برقم البند: 0101 أو 01012100 - قديم
-    if query.isdigit():
-        df_code = df[COL_CODE].astype(str).str.strip().str.split(".").str[0]
-        df_code_clean = df_code.str.replace(r"\.0$", "", regex=True).str.strip()
-        row = df[df_code_clean == query]
-        if row.empty:
-            row = df[df_code_clean.str.startswith(query)]
-        if not row.empty:
-            r = row.iloc[0]
-            fea = r[COL_FEA_WARED] if COL_FEA_WARED else "غير موجود"
-            desc = r[COL_DESC] if COL_DESC else ""
-            unit = r[COL_UNIT] if COL_UNIT else ""
-            return f"✅ البند: {r[COL_CODE]}\n📦 البيان: {desc}\n💰 الفئة / الوارد: {fea}%\n📏 الوحدة: {unit}"
+def format_item(r):
+    fea = r[COL_FEA] if COL_FEA else "غير موجود"
+    desc_ar = r[COL_DESC_AR] if COL_DESC_AR else ""
+    desc_en = ""
+    if COL_DESC_EN and COL_DESC_EN != COL_DESC_AR:
+        desc_en = r[COL_DESC_EN]
+    unit = r[COL_UNIT] if COL_UNIT else ""
+    vat = r[COL_VAT] if COL_VAT else "14"
+    profit = r[COL_PROFIT] if COL_PROFIT else "غير موجود"
+    txt = f"✅ البند: {r[COL_CODE]}\n"
+    txt += f"📦 البيان عربي: {desc_ar}\n"
+    if desc_en and str(desc_en) != "nan":
+        txt += f"📦 البيان انجليزي: {desc_en}\n"
+    txt += f"💰 الفئة / الوارد: {fea}%\n"
+    txt += f"🧾 القيمة المضافة: {vat}%\n"
+    txt += f"🏭 الأرباح التجارية الصناعية: {profit}%\n"
+    txt += f"📏 الوحدة: {unit}"
+    return txt
 
-    # 2- بحث بالفئة أو الوارد: فئة 5% - وارد 10 - قديم
-    if "فئ" in query or "وارد" in query:
-        nums = re.findall(r"\d+", query)
-        if nums and COL_FEA_WARED:
-            num = nums[0]
-            df_fea = df[COL_FEA_WARED].astype(str)
-            rows = df[df_fea.str.contains(num, na=False)]
-            if not rows.empty:
-                res = f"🔍 البنود اللي فئتها / واردها {num}%:\n\n"
-                for _, r in rows.head(15).iterrows():
-                    desc = r[COL_DESC] if COL_DESC else ""
-                    res += f"{r[COL_CODE]} - {desc} - فئة/وارد {r[COL_FEA_WARED]}%\n"
-                return res
-            else:
-                return f"مفيش بنود فئتها {num}%"
-
-    # 3- بحث في GS1 لو الرقم طويل (باركود) - قديم
-    if query.isdigit() and len(query) >= 12 and not df_gs1.empty:
-        col_gs1_code = get_col(df_gs1, ["باركود", "GTIN", "GS1", "كود"])
-        if col_gs1_code:
-            rows = df_gs1[df_gs1[col_gs1_code].astype(str).str.contains(query, na=False)]
-            if not rows.empty:
-                r = rows.iloc[0]
-                return f"📦 نتيجة GS1:\n{r.to_string()}"
-
-    # 4- بحث بالاسم: لحوم - بن - سيارات - قديم
-    if COL_DESC:
-        rows = df[df[COL_DESC].astype(str).str.contains(query, na=False)]
-        if not rows.empty:
-            res = f"🔍 نتائج البحث عن: {query}\n\n"
-            for _, r in rows.head(15).iterrows():
-                fea = r[COL_FEA_WARED] if COL_FEA_WARED else ""
-                res += f"{r[COL_CODE]} - {r[COL_DESC]} - فئة/وارد {fea}%\n"
-            return res
-
-    return "❌ مش لاقي البند ده، جرب كود زي 0101 أو اسم زي بن أو فئة 5%"
-
-# ============ أوامر البوت - قديم ============
-@bot.message_handler(commands=['start', 'help'])
-def start(message):
-    bot.reply_to(message,
-        "أهلا بيك 👋\n"
-        "ابعت كود البند زي: 0101\n"
-        "أو ابعت اسم الصنف زي: بن\n"
-        "أو ابعت: فئة 5% أو وارد 10\n"
-        "وهجيبلك الفئة / الوارد بتاعه"
-    )
-
-@bot.message_handler(func=lambda m: True)
-def handle(message):
+def calc_cif(row, amount):
     try:
-        result = search(message.text)
-        bot.reply_to(message, result)
-    except Exception as e:
-        print(f"خطأ: {e}")
-        bot.reply_to(message, "حصل خطأ، جرب تاني")
+        fea = float(str(row[COL_FEA]).replace("%","").strip()) if COL_FEA else 0
+    except:
+        fea = 0
+    try:
+        vat = float(str(row[COL_VAT]).replace("%","").strip()) if COL_VAT else 14
+    except:
+        vat = 14
+    try:
+        profit = float(str(row[COL_PROFIT]).replace("%","").strip()) if COL_PROFIT else 0
+    except:
+        profit = 0
+    cif = amount
+    customs = cif * fea / 100
+    vat_val = (cif + customs) * vat / 100
+    profit_val = cif * profit / 100
+    total = cif + customs + vat_val + profit_val
+    txt = format_item(row)
+    txt += f"\n\n💵 مبلغ الفاتورة CIF: {cif:,.2f}\n"
+    txt += f"🛃 رسم الوارد ({fea}%): {customs:,.2f}\n"
+    txt += f"🧾 قيمة مضافة ({vat}%): {vat_val:,.2f}\n"
+    txt += f"🏭 أرباح تجارية صناعية ({profit}%): {profit_val:,.2f}\n"
+    txt += f"💰 الإجمالي: {total:,.2f}"
+    return txt
 
-# ============ تشغيل - قديم ============
-if __name__ == "__main__":
-    print("Bot is running...")
-    bot.infinity_polling()
+def search_gs1(keyword):
+    if df_gs1.empty:
+        return "ملف GS1 مش متحمل"
+    keyword = keyword.strip().lower()
+    mask = pd.Series([False]*len(df_gs1))
+    for c in df_gs1.columns:
+        mask = mask | df_gs1[c].astype(str).str.lower().str.contains(keyword, na=False)
+    rows = df_gs1[mask]
+    if rows.empty:
+        return f"❌ مفيش نتيجة في GS1 لـ: {keyword}"
+    res = f"🔍 نتائج GS1 لـ: {keyword}\n\n"
+    for _, r in rows.head(10).iterrows():
+        res += "---\n"
+        for c in df_gs1.columns:
+            v = r[c]
+            if str(v) != "nan" and str(v).strip() != "":
+                res += f"{c}: {
