@@ -74,40 +74,136 @@ def build_index():
 
 build_index()
 
-# ===== Cities - ملف المدن =====
+# ===== Cities.xlsx - فيه 5 شيتات في ملف واحد =====
 CITIES_FILE = "cities.xlsx"
 CITY_INDEX = {}
 CITY_BY_CODE = {}
+COUNTRY_INDEX = {}
+COUNTRY_BY_CODE = {}
+CURRENCY_INDEX = {}
+CURRENCY_BY_CODE = {}
+PACKAGE_INDEX = {}
+PACKAGE_BY_CODE = {}
+UOM_INDEX = {}
+UOM_BY_CODE = {}
 
-def build_city_index():
+def build_reference_index():
     if not os.path.exists(CITIES_FILE):
         print("cities.xlsx not found")
         return
     try:
         wb = openpyxl.load_workbook(CITIES_FILE, read_only=True, data_only=True)
-        ws = wb["City List"] if "City List" in wb.sheetnames else wb[wb.sheetnames[0]]
-        for r in ws.iter_rows(values_only=True):
-            try:
-                if not r or len(r) < 2 or not r[0] or not r[1]:
+        if "City List" in wb.sheetnames:
+            ws = wb["City List"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 2 or not r[0] or not r[1]:
+                        continue
+                    if str(r[0]).lower() == "citycode":
+                        continue
+                    code = str(r[0]).strip().upper()
+                    name = str(r[1]).strip()
+                    country = str(r[2]).strip() if len(r) > 2 and r[2] else ""
+                    CITY_BY_CODE[code] = {"code": code, "name": name, "country": country}
+                    key = name.lower()
+                    if key not in CITY_INDEX:
+                        CITY_INDEX[key] = []
+                    CITY_INDEX[key].append({"code": code, "name": name, "country": country})
+                except:
                     continue
-                if str(r[0]).lower() == "citycode":
+        if "Cities" in wb.sheetnames:
+            ws = wb["Cities"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 2 or not r[0] or not r[1]:
+                        continue
+                    if str(r[0]).lower() == "citycode":
+                        continue
+                    code = str(r[0]).strip().upper()
+                    name = str(r[1]).strip()
+                    if code in CITY_BY_CODE:
+                        continue
+                    CITY_BY_CODE[code] = {"code": code, "name": name, "country": ""}
+                    key = name.lower()
+                    if key not in CITY_INDEX:
+                        CITY_INDEX[key] = []
+                    CITY_INDEX[key].append({"code": code, "name": name, "country": ""})
+                except:
                     continue
-                code = str(r[0]).strip().upper()
-                name = str(r[1]).strip()
-                country = str(r[2]).strip() if len(r) > 2 and r[2] else ""
-                CITY_BY_CODE[code] = {"code": code, "name": name, "country": country}
-                key = name.lower()
-                if key not in CITY_INDEX:
-                    CITY_INDEX[key] = []
-                CITY_INDEX[key].append({"code": code, "name": name, "country": country})
-            except:
-                continue
+        if "Country List" in wb.sheetnames:
+            ws = wb["Country List"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 2 or not r[0] or not r[1]:
+                        continue
+                    if str(r[0]).lower() == "code":
+                        continue
+                    code = str(r[0]).strip().upper()
+                    name = str(r[1]).strip()
+                    COUNTRY_BY_CODE[code] = {"code": code, "name": name}
+                    key = name.lower()
+                    if key not in COUNTRY_INDEX:
+                        COUNTRY_INDEX[key] = []
+                    COUNTRY_INDEX[key].append({"code": code, "name": name})
+                except:
+                    continue
+        if "Currency List" in wb.sheetnames:
+            ws = wb["Currency List"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 2 or not r[0] or not r[1]:
+                        continue
+                    if "currency" in str(r[0]).lower():
+                        continue
+                    name = str(r[0]).strip()
+                    code = str(r[1]).strip().upper()
+                    CURRENCY_BY_CODE[code] = {"code": code, "name": name}
+                    key = name.lower()
+                    if key not in CURRENCY_INDEX:
+                        CURRENCY_INDEX[key] = []
+                    CURRENCY_INDEX[key].append({"code": code, "name": name})
+                except:
+                    continue
+        if "Package Type list" in wb.sheetnames:
+            ws = wb["Package Type list"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 2 or not r[0] or not r[1]:
+                        continue
+                    if str(r[0]).lower() == "code":
+                        continue
+                    code = str(r[0]).strip().upper()
+                    name = str(r[1]).strip()
+                    PACKAGE_BY_CODE[code] = {"code": code, "name": name}
+                    key = name.lower()
+                    if key not in PACKAGE_INDEX:
+                        PACKAGE_INDEX[key] = []
+                    PACKAGE_INDEX[key].append({"code": code, "name": name})
+                except:
+                    continue
+        if "UOM List" in wb.sheetnames:
+            ws = wb["UOM List"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 2 or not r[0] or not r[1]:
+                        continue
+                    if "uomcode" in str(r[0]).lower():
+                        continue
+                    code = str(r[0]).strip().upper()
+                    name = str(r[1]).strip()
+                    UOM_BY_CODE[code] = {"code": code, "name": name}
+                    key = name.lower()
+                    if key not in UOM_INDEX:
+                        UOM_INDEX[key] = []
+                    UOM_INDEX[key].append({"code": code, "name": name})
+                except:
+                    continue
         wb.close()
-        print(f"Cities indexed: {len(CITY_BY_CODE)}")
+        print(f"Ref indexed: Cities {len(CITY_BY_CODE)} | Country {len(COUNTRY_BY_CODE)} | Currency {len(CURRENCY_BY_CODE)} | Package {len(PACKAGE_BY_CODE)} | UOM {len(UOM_BY_CODE)}")
     except Exception as e:
-        print(f"City index error: {e}")
+        print(f"Ref index error: {e}")
 
-build_city_index()
+build_reference_index()
 
 def load_docs():
     if not os.path.exists(DOCS_FILE):
@@ -212,24 +308,133 @@ def format_brick(brick, attrs):
                 txt += "\n"
     return txt
 
-# ===== البحث في المدن =====
-def search_city(query):
+# ===== البحث العام في الملفات الخمسة =====
+def search_ref(kind, query):
     q = query.strip()
     qu = q.upper().strip()
-    if qu in CITY_BY_CODE:
-        return CITY_BY_CODE[qu], None
+    if kind == "cities":
+        by_code, index = CITY_BY_CODE, CITY_INDEX
+    elif kind == "country":
+        by_code, index = COUNTRY_BY_CODE, COUNTRY_INDEX
+    elif kind == "currency":
+        by_code, index = CURRENCY_BY_CODE, CURRENCY_INDEX
+    elif kind == "package":
+        by_code, index = PACKAGE_BY_CODE, PACKAGE_INDEX
+    elif kind == "uom":
+        by_code, index = UOM_BY_CODE, UOM_INDEX
+    else:
+        return None, None
+    if qu in by_code:
+        return by_code[qu], None
     ql = q.lower()
     matches = []
-    for key, lst in CITY_INDEX.items():
+    for key, lst in index.items():
         if ql in key:
             matches.extend(lst)
             if len(matches) >= 10:
                 break
+    if not matches:
+        for code, item in by_code.items():
+            if qu in code:
+                matches.append(item)
+                if len(matches) >= 10:
+                    break
     if len(matches) == 1:
         return matches[0], None
     if len(matches) > 1:
         return ("multiple", matches[:10]), None
     return None, None
+
+def format_ref(kind, item):
+    if kind == "cities":
+        extra = f"\n🌍 Country: {item.get('country','')}" if item.get("country") else ""
+        return f"🏙️ {item['name']}\n🔢 City Code: {item['code']}{extra}"
+    if kind == "country":
+        return f"🌍 {item['name']}\n🔢 Country Code: {item['code']}"
+    if kind == "currency":
+        return f"💵 {item['name']}\n🔢 Currency Code: {item['code']}"
+    if kind == "package":
+        return f"📦 {item['name']}\n🔢 Package Code: {item['code']}"
+    if kind == "uom":
+        return f"📏 {item['name']}\n🔢 UOM Code: {item['code']}"
+    return f"{item['name']} - {item['code']}"
+
+def format_ref_list(kind, matches):
+    titles = {"cities": "مدينة", "country": "دولة", "currency": "عملة", "package": "عبوة", "uom": "وحدة قياس"}
+    txt = f"لقيت {len(matches)} {titles.get(kind,'') }:\n\n"
+    for c in matches:
+        txt += format_ref(kind, c) + "\n\n"
+    return txt
+
+def search_all_refs(query):
+    results = []
+    q = query.strip()
+    qu = q.upper().strip()
+    ql = q.lower()
+    if qu in CITY_BY_CODE:
+        results.append(("cities", CITY_BY_CODE[qu]))
+    if qu in COUNTRY_BY_CODE:
+        results.append(("country", COUNTRY_BY_CODE[qu]))
+    if qu in CURRENCY_BY_CODE:
+        results.append(("currency", CURRENCY_BY_CODE[qu]))
+    if qu in PACKAGE_BY_CODE:
+        results.append(("package", PACKAGE_BY_CODE[qu]))
+    if qu in UOM_BY_CODE:
+        results.append(("uom", UOM_BY_CODE[qu]))
+    if results:
+        return results
+    for kind, index in [("cities", CITY_INDEX), ("country", COUNTRY_INDEX), ("currency", CURRENCY_INDEX), ("package", PACKAGE_INDEX), ("uom", UOM_INDEX)]:
+        for key, lst in index.items():
+            if ql in key:
+                for item in lst:
+                    results.append((kind, item))
+                    if len(results) >= 10:
+                        return results
+    return results
+
+# ===== التعديل الاخير: لو كتب الكلمة لوحدها يطلع الليستة كلها =====
+def get_sorted_ref_list(kind):
+    if kind == "cities":
+        return sorted(CITY_BY_CODE.values(), key=lambda x: x["code"])
+    if kind == "country":
+        return sorted(COUNTRY_BY_CODE.values(), key=lambda x: x["code"])
+    if kind == "currency":
+        return sorted(CURRENCY_BY_CODE.values(), key=lambda x: x["code"])
+    if kind == "package":
+        return sorted(PACKAGE_BY_CODE.values(), key=lambda x: x["code"])
+    if kind == "uom":
+        return sorted(UOM_BY_CODE.values(), key=lambda x: x["code"])
+    return []
+
+def ref_list_keyboard(kind, page=0):
+    lst = get_sorted_ref_list(kind)
+    per = 10
+    start = page * per
+    end = start + per
+    total_pages = (len(lst) + per - 1) // per
+    kb = []
+    for i in range(start, min(end, len(lst))):
+        item = lst[i]
+        label = f"{item['name'][:40]} - {item['code']}"
+        kb.append([InlineKeyboardButton(label, callback_data=f"refsel_{kind}_{i}")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"refpage_{kind}_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"refpage_{kind}_{page+1}"))
+    if nav:
+        kb.append(nav)
+    return InlineKeyboardMarkup(kb), f"اختار من {kind} - صفحة {page+1} من {total_pages} - العدد الكلي {len(lst)}"
+
+async def send_ref_list(update, context, kind, page=0):
+    kb, txt = ref_list_keyboard(kind, page)
+    if update.message:
+        await update.message.reply_text(txt, reply_markup=kb)
+    elif update.callback_query:
+        try:
+            await update.callback_query.message.edit_text(txt, reply_markup=kb)
+        except:
+            await update.callback_query.message.reply_text(txt, reply_markup=kb)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -273,6 +478,25 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
     users = load_users()
     data = query.data
+    if data.startswith("refpage_"):
+        parts = data.split("_")
+        kind = parts[1]
+        page = int(parts[2])
+        kb, txt = ref_list_keyboard(kind, page)
+        try:
+            await query.message.edit_text(txt, reply_markup=kb)
+        except:
+            await query.message.reply_text(txt, reply_markup=kb)
+        return
+    if data.startswith("refsel_"):
+        parts = data.split("_")
+        kind = parts[1]
+        idx = int(parts[2])
+        lst = get_sorted_ref_list(kind)
+        if 0 <= idx < len(lst):
+            item = lst[idx]
+            await query.message.reply_text(format_ref(kind, item))
+        return
     if data.startswith("accept_"):
         uid = data.split("_")[1]
         if uid in users:
@@ -382,8 +606,7 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     attrs = get_attrs_for_brick(brick["brick_title"])
     await update.message.reply_text(format_brick(brick, attrs))
 
-# ===== امر المدن =====
-async def city_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE, kind, label, example):
     users = load_users()
     uid = str(update.message.from_user.id)
     if str(update.message.from_user.id) != str(ADMIN_ID):
@@ -391,21 +614,32 @@ async def city_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Please send /start first.")
             return
     if not context.args:
-        await update.message.reply_text("اكتب: /city اسم المدينة او الكود\nمثال: /city Cairo\nاو: /city EGCAI\nاو: /city Alexandria")
+        await send_ref_list(update, context, kind, 0)
         return
     query = " ".join(context.args)
-    result, _ = search_city(query)
+    result, _ = search_ref(kind, query)
     if result is None:
-        await update.message.reply_text(f"❌ ملقيتش مدينة اسمها: {query}")
+        await update.message.reply_text(f"❌ ملقيتش {label} اسمها: {query}")
         return
     if isinstance(result, tuple) and result[0] == "multiple":
-        matches = result[1]
-        txt = f"لقيت {len(matches)} مدينة:\n\n"
-        for c in matches:
-            txt += f"🏙️ {c['name']}\n🔢 {c['code']} - {c['country']}\n\n"
-        await update.message.reply_text(txt)
+        await update.message.reply_text(format_ref_list(kind, result[1]))
         return
-    await update.message.reply_text(f"🏙️ {result['name']}\n🔢 City Code: {result['code']}\n🌍 Country: {result['country']}")
+    await update.message.reply_text(format_ref(kind, result))
+
+async def cities_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await ref_command(update, context, "cities", "مدينة", "/cities Cairo  او  /cities EGCAI")
+
+async def country_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await ref_command(update, context, "country", "دولة", "/country Egypt  او  /country EG")
+
+async def currency_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await ref_command(update, context, "currency", "عملة", "/currency USD  او  /currency Dollar")
+
+async def package_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await ref_command(update, context, "package", "عبوة", "/package Box  او  /package BX")
+
+async def uom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await ref_command(update, context, "uom", "وحدة قياس", "/uom KGM  او  /uom Kilogram")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -413,21 +647,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     if is_download_request(text):
         return await download_doc(update, context)
-    # لو كتب city + اسم المدينة من غير سلاش
+    # ===== التعديل الاخير: لو كتب الكلمة لوحدها يطلع الليستة كلها =====
+    bare = text.strip().lstrip("/").strip().lower()
+    bare_map = {
+        "country": "country", "countries": "country", "دولة": "country", "دول": "country",
+        "cities": "cities", "city": "cities", "مدينة": "cities", "مدن": "cities",
+        "currency": "currency", "currencies": "currency", "عملة": "currency", "عملات": "currency",
+        "package": "package", "packages": "package", "packaging": "package", "عبوة": "package", "عبوات": "package",
+        "uom": "uom", "unit": "uom", "units": "uom", "وحدة": "uom",
+    }
+    if bare in bare_map:
+        kind = bare_map[bare]
+        await send_ref_list(update, context, kind, 0)
+        return
+    # ===== لو كتب Cities Cairo / Country Egypt ... الخ =====
     low = text.strip().lower()
-    if low.startswith("city ") or low.startswith("مدينة ") or low.startswith("ميناء "):
-        q = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
-        if q:
-            result, _ = search_city(q)
-            if result is not None:
-                if isinstance(result, tuple) and result[0] == "multiple":
-                    txt = f"لقيت {len(result[1])} مدينة:\n\n"
-                    for c in result[1]:
-                        txt += f"🏙️ {c['name']}\n🔢 {c['code']} - {c['country']}\n\n"
-                    await update.message.reply_text(txt)
+    prefixes = [
+        ("cities ", "cities"), ("city ", "cities"), ("مدينة ", "cities"),
+        ("country ", "country"), ("دولة ", "country"),
+        ("currency ", "currency"), ("عملة ", "currency"),
+        ("package ", "package"), ("عبوة ", "package"), ("packaging ", "package"),
+        ("uom ", "uom"), ("unit ", "uom"),
+    ]
+    for pref, kind in prefixes:
+        if low.startswith(pref) or low.startswith("/" + pref):
+            q = text.strip().lstrip("/").strip().split(" ", 1)[1] if " " in text.strip() else ""
+            if q:
+                result, _ = search_ref(kind, q)
+                if result is not None:
+                    if isinstance(result, tuple) and result[0] == "multiple":
+                        await update.message.reply_text(format_ref_list(kind, result[1]))
+                        return
+                    await update.message.reply_text(format_ref(kind, result))
                     return
-                await update.message.reply_text(f"🏙️ {result['name']}\n🔢 City Code: {result['code']}\n🌍 Country: {result['country']}")
-                return
+                else:
+                    await update.message.reply_text(f"❌ ملقيتش في {kind}: {q}")
+                    return
+    # ===== لو كتب كلمة لوحدها زي Cairo / USD / Box =====
+    q_single = text.strip().lstrip("/").strip()
+    if len(q_single) >= 2:
+        ref_results = search_all_refs(q_single)
+        if ref_results:
+            txt = ""
+            for kind, item in ref_results:
+                txt += format_ref(kind, item) + "\n\n"
+            await update.message.reply_text(txt.strip())
+            return
     users = load_users()
     if str(user.id) == str(ADMIN_ID):
         if len(text.strip()) >= 3:
@@ -519,11 +784,16 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("docs", list_docs))
     app.add_handler(CommandHandler("gpc", gpc_search_command))
-    app.add_handler(CommandHandler("city", city_command))
+    app.add_handler(CommandHandler("cities", cities_command))
+    app.add_handler(CommandHandler("city", cities_command))
+    app.add_handler(CommandHandler("country", country_command))
+    app.add_handler(CommandHandler("currency", currency_command))
+    app.add_handler(CommandHandler("package", package_command))
+    app.add_handler(CommandHandler("uom", uom_command))
     app.add_handler(CallbackQueryHandler(button_click))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print(f"Bot is running... fast index, {len(BRICK_INDEX)} bricks, {len(CITY_BY_CODE)} cities")
+    print(f"Bot is running... {len(BRICK_INDEX)} bricks, {len(CITY_BY_CODE)} cities, {len(COUNTRY_BY_CODE)} countries, {len(CURRENCY_BY_CODE)} currencies, {len(PACKAGE_BY_CODE)} packages, {len(UOM_BY_CODE)} uom")
     app.run_polling()
 
 if __name__ == "__main__":
