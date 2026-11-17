@@ -10,11 +10,53 @@ REJECT_WAIT = 5 * 60
 DOCS_FILE = "docs_index.json"
 os.makedirs("docs", exist_ok=True)
 
-# ملفين بس
 EXCEL_FILES = [
     "gs1xlsx.xlsx",
     "GPC as of May 2023 v20230605 EN.xlsx",
 ]
+
+# ===== فهرس خفيف بس - اسم وكود بس، من غير اتربيوت - مش بياكل رامات =====
+BRICK_INDEX = {}  # key = title.lower() -> brick dict
+BRICK_BY_CODE = {}
+
+def build_index():
+    print("Building light index...")
+    for fname in EXCEL_FILES:
+        if not os.path.exists(fname):
+            continue
+        try:
+            wb = openpyxl.load_workbook(fname, read_only=True, data_only=True)
+            ws = wb["Schema"] if "Schema" in wb.sheetnames else wb[wb.sheetnames[0]]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or len(r) < 11:
+                        continue
+                    if str(r[0]).lower().startswith("segment"):
+                        continue
+                    brick_code = str(r[9]) if r[9] is not None else ""
+                    brick_title = str(r[10]) if r[10] is not None else ""
+                    if not brick_title:
+                        continue
+                    key = brick_title.strip().lower()
+                    if key not in BRICK_INDEX:
+                        BRICK_INDEX[key] = {
+                            "brick_code": brick_code, "brick_title": brick_title,
+                            "segment": r[1], "segment_code": str(r[0]),
+                            "family": r[4], "family_code": str(r[3]),
+                            "class": r[7], "class_code": str(r[6]),
+                            "includes": r[11] or "", "excludes": r[12] if len(r) > 12 else "" or "",
+                        }
+                        if brick_code:
+                            BRICK_BY_CODE[brick_code] = key
+                except:
+                    continue
+            wb.close()
+            print(f"Indexed {fname}: {len(BRICK_INDEX)} bricks so far")
+        except Exception as e:
+            print(f"Index error {fname}: {e}")
+    print(f"Index done: {len(BRICK_INDEX)} bricks")
+
+build_index()
 
 def load_docs():
     if not os.path.exists(DOCS_FILE):
@@ -54,7 +96,6 @@ def generate_code(users):
         if all(u.get("code") != code for u in users.values()):
             return code
 
-# ===== تصليح التزيل =====
 def clean_text(text):
     if not text:
         return ""
@@ -78,16 +119,27 @@ def extract_number(text):
 def normalize(text):
     return re.sub(r'\s+', ' ', (text or "").strip().lower())
 
-# ===== بحث خفيف - من غير ما نحمل الاكسيل في الرامات =====
-# كل مرة بنفتح الملف ونقرا صف صف ونقفله، الرامات بتفضل فاضية
-def search_gpc_light(query):
+def search_gpc_fast(query):
     q = normalize(query)
     if not q:
         return None, None
     q_digits = re.sub(r'\D', '', q)
-    matches = []
-    found_brick = None
-    found_attrs = []
+    if q_digits and q_digits in BRICK_BY_CODE:
+        key = BRICK_BY_CODE[q_digits]
+        return BRICK_INDEX[key], None
+    if q in BRICK_INDEX:
+        return BRICK_INDEX[q], None
+    matches = [BRICK_INDEX[k] for k in BRICK_INDEX.keys() if q in k]
+    if len(matches) == 1:
+        return matches[0], None
+    if len(matches) > 1:
+        return ("multiple", matches[:10]), None
+    return None, None
+
+# الاتربيوت بنجيبها بس لما اليوزر يختار صنف واحد، مش لكل البحث
+def get_attrs_for_brick(brick_title):
+    attrs = []
+    target = brick_title.strip().lower()
     for fname in EXCEL_FILES:
         if not os.path.exists(fname):
             continue
@@ -96,80 +148,32 @@ def search_gpc_light(query):
             ws = wb["Schema"] if "Schema" in wb.sheetnames else wb[wb.sheetnames[0]]
             for r in ws.iter_rows(values_only=True):
                 try:
-                    if not r or len(r) < 11:
+                    if not r or len(r) < 14:
                         continue
-                    # تخطي الهيدر
-                    if str(r[0]).lower().startswith("segment") or str(r[9]).lower().startswith("brick"):
+                    if str(r[10] or "").strip().lower() != target:
                         continue
-                    brick_code = str(r[9]) if r[9] is not None else ""
-                    brick_title = str(r[10]) if r[10] is not None else ""
-                    if not brick_title:
+                    if r[13] is None:
                         continue
-                    # بحث بالكود بالظبط
-                    if q_digits and q_digits == brick_code:
-                        found_brick = {
-                            "brick_code": brick_code, "brick_title": brick_title,
-                            "segment": r[1], "segment_code": str(r[0]),
-                            "family": r[4], "family_code": str(r[3]),
-                            "class": r[7], "class_code": str(r[6]),
-                            "includes": r[11] or "", "excludes": r[12] if len(r) > 12 else "" or "",
-                        }
-                        # هات الاتربيوت بتاعه من نفس الملف
-                        # هنكمل لف عشان نجمع الاتربيوت
-                        if found_brick:
-                            # هنسيب اللوب يكمل يجمع اتربيوت لنفس البريك
-                            pass
-                    # بحث بالاسم
-                    if q in brick_title.strip().lower():
-                        # لو لقينا تطابق كامل
-                        if brick_title.strip().lower() == q:
-                            found_brick = {
-                                "brick_code": brick_code, "brick_title": brick_title,
-                                "segment": r[1], "segment_code": str(r[0]),
-                                "family": r[4], "family_code": str(r[3]),
-                                "class": r[7], "class_code": str(r[6]),
-                                "includes": r[11] or "", "excludes": r[12] if len(r) > 12 else "" or "",
-                            }
-                        elif len(matches) < 10 and brick_title not in [m["brick_title"] for m in matches]:
-                            matches.append({
-                                "brick_code": brick_code, "brick_title": brick_title,
-                                "segment": r[1], "segment_code": str(r[0]),
-                                "family": r[4], "family_code": str(r[3]),
-                                "class": r[7], "class_code": str(r[6]),
-                                "includes": r[11] or "", "excludes": r[12] if len(r) > 12 else "" or "",
-                            })
-                    # لو لقينا البريك بالظبط، جمع الاتربيوت بتاعته
-                    if found_brick and brick_title.strip().lower() == found_brick["brick_title"].strip().lower():
-                        if len(r) > 13 and r[13] is not None:
-                            attr_code = str(r[13])
-                            attr_title = r[14]
-                            val_title = str(r[17]) if len(r) > 17 and r[17] is not None else None
-                            ex = None
-                            for a in found_attrs:
-                                if a["attribute_code"] == attr_code:
-                                    ex = a; break
-                            if not ex:
-                                ex = {"attribute_code": attr_code, "attribute_title": attr_title, "values": []}
-                                found_attrs.append(ex)
-                            if val_title and val_title not in ex["values"]:
-                                ex["values"].append(val_title)
+                    attr_code = str(r[13])
+                    attr_title = r[14]
+                    val_title = str(r[17]) if len(r) > 17 and r[17] is not None else None
+                    ex = None
+                    for a in attrs:
+                        if a["attribute_code"] == attr_code:
+                            ex = a; break
+                    if not ex:
+                        ex = {"attribute_code": attr_code, "attribute_title": attr_title, "values": []}
+                        attrs.append(ex)
+                    if val_title and val_title not in ex["values"]:
+                        ex["values"].append(val_title)
                 except:
                     continue
-                # لو لقينا تطابق كامل + جمعنا شوية اتربيوت، كفاية، بس هنكمل الملف التاني؟ لا، هنوقف عشان السرعة
-                # هنسيب اللوب يكمل الملف كله عشان الاتربيوت، بس لو الملف كبير هنوقف بعد ما نلاقي البريك في الملف التاني كمان
             wb.close()
-            if found_brick:
+            if attrs:
                 break
-        except Exception as e:
-            print(f"Error searching {fname}: {e}")
+        except:
             continue
-    if found_brick:
-        return found_brick, found_attrs
-    if len(matches) == 1:
-        return matches[0], []
-    if len(matches) > 1:
-        return ("multiple", matches), None
-    return None, None
+    return attrs
 
 def format_brick(brick, attrs):
     txt = f"📦 {brick['brick_title']}\n"
@@ -229,7 +233,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    # ===== اهم تصليح - رد على الزرار فورا قبل اي بحث، عشان ميعملش timeout =====
+    try:
+        await query.answer()
+    except Exception:
+        pass
     users = load_users()
     data = query.data
     if data.startswith("accept_"):
@@ -253,8 +261,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keys = context.user_data.get("gpc_matches", [])
             if 0 <= idx < len(keys):
                 b = keys[idx]
-                # هات الاتربيوت بتاعه على طول
-                _, attrs = search_gpc_light(b["brick_title"])
+                attrs = get_attrs_for_brick(b["brick_title"])
                 await query.message.reply_text(format_brick(b, attrs))
         except Exception as e:
             print(f"gpc callback error: {e}")
@@ -324,7 +331,7 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("اكتب: /gpc اسم الصنف او الكود\nمثال: /gpc Airbrushes\nاو: /gpc 10001686")
         return
     query = " ".join(context.args)
-    brick, attrs = search_gpc_light(query)
+    brick, _ = search_gpc_fast(query)
     if brick is None:
         await update.message.reply_text(f"❌ ملقيتش صنف اسمه: {query}")
         return
@@ -334,6 +341,7 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = [[InlineKeyboardButton(m["brick_title"][:60], callback_data=f"gpc_{i}")] for i, m in enumerate(matches)]
         await update.message.reply_text(f"لقيت {len(matches)} صنف، اختار واحد:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
+    attrs = get_attrs_for_brick(brick["brick_title"])
     await update.message.reply_text(format_brick(brick, attrs))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -355,7 +363,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Your request was rejected. Send /start again after 5 minutes.")
         return
     if len(text.strip()) >= 3:
-        brick, attrs = search_gpc_light(text)
+        brick, _ = search_gpc_fast(text)
         if brick is not None:
             if isinstance(brick, tuple) and brick[0] == "multiple":
                 matches = brick[1]
@@ -363,6 +371,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 keyboard = [[InlineKeyboardButton(m["brick_title"][:60], callback_data=f"gpc_{i}")] for i, m in enumerate(matches)]
                 await update.message.reply_text(f"لقيت {len(matches)} صنف قريب من: {text}\nاختار واحد:", reply_markup=InlineKeyboardMarkup(keyboard))
                 return
+            attrs = get_attrs_for_brick(brick["brick_title"])
             await update.message.reply_text(format_brick(brick, attrs))
             return
     if ADMIN_ID:
@@ -421,7 +430,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_click))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot is running... light mode, no GPC preload")
+    print(f"Bot is running... fast index, {len(BRICK_INDEX)} bricks")
     app.run_polling()
 
 if __name__ == "__main__":
