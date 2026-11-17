@@ -1,4 +1,4 @@
-import os, json, time, random, string
+import os, json, time, random, string, re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
@@ -165,7 +165,7 @@ async def list_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt += "\nاكتب: تزيل 1"
     await update.message.reply_text(txt)
 
-# --- الجديد: تزيل رقم ---
+# --- الجديد: تزيل رقم - النسخة النهائية ---
 async def download_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
@@ -176,22 +176,28 @@ async def download_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Please send /start first.")
             return
     txt = update.message.text.strip()
-    for w in ["تزيل", "تنزيل", "رقم"]:
-        txt = txt.replace(w, "")
-    txt = txt.strip()
-    if not txt.isdigit():
+    m = re.search(r'(\d+)', txt)
+    if not m:
+        await update.message.reply_text("اكتب: تزيل 1")
         return
-    num = int(txt)
+    num = int(m.group(1))
     docs = load_docs()
     for d in docs:
         if d["num"] == num:
-            await update.message.reply_document(document=open(d["path"], "rb"), caption=f"📄 رقم {num} - {d['name']}")
+            try:
+                await update.message.reply_document(document=open(d["path"], "rb"), caption=f"📄 رقم {num} - {d['name']}")
+            except FileNotFoundError:
+                await update.message.reply_text(f"❌ الملف رقم {num} مش موجود على السيرفر، ارفعه تاني")
             return
-    await update.message.reply_text(f"❌ مفيش مستند رقم {num}")
+    await update.message.reply_text(f"❌ مفيش مستند رقم {num}\nاكتب /docs عشان تشوف الارقام")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
+    text = update.message.text or ""
+    # --- النهائي: تزيل هنا على طول قبل اي حاجة، من غير Regex ---
+    if "تزيل" in text or "تنزيل" in text:
+        return await download_doc(update, context)
     users = load_users()
     # Admin messages are commands, ignore here
     if str(user.id) == str(ADMIN_ID):
@@ -250,23 +256,4 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     accepted = sum(1 for u in users.values() if u.get("status")=="accepted")
     pending = sum(1 for u in users.values() if u.get("status")=="pending")
-    rejected = sum(1 for u in users.values() if u.get("status")=="rejected")
-    await update.message.reply_text(f"Total: {len(users)}\nAccepted: {accepted}\nPending: {pending}\nRejected: {rejected}")
-
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("users", list_users))
-    app.add_handler(CommandHandler("delete", delete_user))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("docs", list_docs))
-    app.add_handler(CallbackQueryHandler(button_click))
-    # الجديد: لازم قبل handle_message عشان تزيل تشتغل
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'(تزيل|تنزيل).*\\d'), download_doc))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot is running...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+    rejected = sum(1 for u in users.values()
