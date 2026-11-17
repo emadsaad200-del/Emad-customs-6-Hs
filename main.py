@@ -15,9 +15,10 @@ EXCEL_FILES = [
     "GPC as of May 2023 v20230605 EN.xlsx",
 ]
 
+# ===== GPC =====
 BRICK_INDEX = {}
 BRICK_BY_CODE = {}
-BRICK_ATTRS = {}  # ===== جديد: الاتربيوت متخزنة جاهزة، مش بنفتح الاكسل كل مرة =====
+BRICK_ATTRS = {}
 
 def build_index():
     print("Building light index...")
@@ -48,7 +49,6 @@ def build_index():
                         }
                         if brick_code:
                             BRICK_BY_CODE[brick_code] = key
-                    # ===== جديد: بنجمع الاتربيوت في نفس اللفة، مرة واحدة بس =====
                     if len(r) > 14 and r[13] is not None:
                         attr_code = str(r[13])
                         attr_title = r[14]
@@ -73,6 +73,41 @@ def build_index():
     print(f"Index done: {len(BRICK_INDEX)} bricks")
 
 build_index()
+
+# ===== Cities - ملف المدن =====
+CITIES_FILE = "cities.xlsx"
+CITY_INDEX = {}
+CITY_BY_CODE = {}
+
+def build_city_index():
+    if not os.path.exists(CITIES_FILE):
+        print("cities.xlsx not found")
+        return
+    try:
+        wb = openpyxl.load_workbook(CITIES_FILE, read_only=True, data_only=True)
+        ws = wb["City List"] if "City List" in wb.sheetnames else wb[wb.sheetnames[0]]
+        for r in ws.iter_rows(values_only=True):
+            try:
+                if not r or len(r) < 2 or not r[0] or not r[1]:
+                    continue
+                if str(r[0]).lower() == "citycode":
+                    continue
+                code = str(r[0]).strip().upper()
+                name = str(r[1]).strip()
+                country = str(r[2]).strip() if len(r) > 2 and r[2] else ""
+                CITY_BY_CODE[code] = {"code": code, "name": name, "country": country}
+                key = name.lower()
+                if key not in CITY_INDEX:
+                    CITY_INDEX[key] = []
+                CITY_INDEX[key].append({"code": code, "name": name, "country": country})
+            except:
+                continue
+        wb.close()
+        print(f"Cities indexed: {len(CITY_BY_CODE)}")
+    except Exception as e:
+        print(f"City index error: {e}")
+
+build_city_index()
 
 def load_docs():
     if not os.path.exists(DOCS_FILE):
@@ -152,7 +187,6 @@ def search_gpc_fast(query):
         return ("multiple", matches[:10]), None
     return None, None
 
-# ===== جديد: بقى بيجيب من الذاكرة في اقل من ثانية، مش بيفتح الاكسل =====
 def get_attrs_for_brick(brick_title):
     return BRICK_ATTRS.get(brick_title.strip().lower(), [])
 
@@ -177,6 +211,25 @@ def format_brick(brick, attrs):
                     txt += f" ... (+{len(a['values'])-15} more)"
                 txt += "\n"
     return txt
+
+# ===== البحث في المدن =====
+def search_city(query):
+    q = query.strip()
+    qu = q.upper().strip()
+    if qu in CITY_BY_CODE:
+        return CITY_BY_CODE[qu], None
+    ql = q.lower()
+    matches = []
+    for key, lst in CITY_INDEX.items():
+        if ql in key:
+            matches.extend(lst)
+            if len(matches) >= 10:
+                break
+    if len(matches) == 1:
+        return matches[0], None
+    if len(matches) > 1:
+        return ("multiple", matches[:10]), None
+    return None, None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -329,12 +382,52 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     attrs = get_attrs_for_brick(brick["brick_title"])
     await update.message.reply_text(format_brick(brick, attrs))
 
+# ===== امر المدن =====
+async def city_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = load_users()
+    uid = str(update.message.from_user.id)
+    if str(update.message.from_user.id) != str(ADMIN_ID):
+        if uid not in users or users[uid].get("status") != "accepted":
+            await update.message.reply_text("Please send /start first.")
+            return
+    if not context.args:
+        await update.message.reply_text("اكتب: /city اسم المدينة او الكود\nمثال: /city Cairo\nاو: /city EGCAI\nاو: /city Alexandria")
+        return
+    query = " ".join(context.args)
+    result, _ = search_city(query)
+    if result is None:
+        await update.message.reply_text(f"❌ ملقيتش مدينة اسمها: {query}")
+        return
+    if isinstance(result, tuple) and result[0] == "multiple":
+        matches = result[1]
+        txt = f"لقيت {len(matches)} مدينة:\n\n"
+        for c in matches:
+            txt += f"🏙️ {c['name']}\n🔢 {c['code']} - {c['country']}\n\n"
+        await update.message.reply_text(txt)
+        return
+    await update.message.reply_text(f"🏙️ {result['name']}\n🔢 City Code: {result['code']}\n🌍 Country: {result['country']}")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
     text = update.message.text or ""
     if is_download_request(text):
         return await download_doc(update, context)
+    # لو كتب city + اسم المدينة من غير سلاش
+    low = text.strip().lower()
+    if low.startswith("city ") or low.startswith("مدينة ") or low.startswith("ميناء "):
+        q = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
+        if q:
+            result, _ = search_city(q)
+            if result is not None:
+                if isinstance(result, tuple) and result[0] == "multiple":
+                    txt = f"لقيت {len(result[1])} مدينة:\n\n"
+                    for c in result[1]:
+                        txt += f"🏙️ {c['name']}\n🔢 {c['code']} - {c['country']}\n\n"
+                    await update.message.reply_text(txt)
+                    return
+                await update.message.reply_text(f"🏙️ {result['name']}\n🔢 City Code: {result['code']}\n🌍 Country: {result['country']}")
+                return
     users = load_users()
     if str(user.id) == str(ADMIN_ID):
         if len(text.strip()) >= 3:
@@ -426,10 +519,11 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("docs", list_docs))
     app.add_handler(CommandHandler("gpc", gpc_search_command))
+    app.add_handler(CommandHandler("city", city_command))
     app.add_handler(CallbackQueryHandler(button_click))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print(f"Bot is running... fast index, {len(BRICK_INDEX)} bricks")
+    print(f"Bot is running... fast index, {len(BRICK_INDEX)} bricks, {len(CITY_BY_CODE)} cities")
     app.run_polling()
 
 if __name__ == "__main__":
