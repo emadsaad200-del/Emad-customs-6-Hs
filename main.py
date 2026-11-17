@@ -74,7 +74,7 @@ def build_index():
 
 build_index()
 
-# ===== Cities.xlsx - فيه 5 شيتات في ملف واحد =====
+# ===== Cities.xlsx - 5 شيتات في ملف واحد =====
 CITIES_FILE = "cities.xlsx"
 CITY_INDEX = {}
 CITY_BY_CODE = {}
@@ -392,7 +392,7 @@ def search_all_refs(query):
                         return results
     return results
 
-# ===== التعديل الاخير: لو كتب الكلمة لوحدها يطلع الليستة كلها =====
+# ===== الليستة الكاملة + البحث جوه الليستة =====
 def get_sorted_ref_list(kind):
     if kind == "cities":
         return sorted(CITY_BY_CODE.values(), key=lambda x: x["code"])
@@ -406,12 +406,24 @@ def get_sorted_ref_list(kind):
         return sorted(UOM_BY_CODE.values(), key=lambda x: x["code"])
     return []
 
-def ref_list_keyboard(kind, page=0):
+def get_filtered_ref_list(kind, query=""):
     lst = get_sorted_ref_list(kind)
+    q = (query or "").strip().lower()
+    if not q:
+        return lst
+    qu = q.upper()
+    out = []
+    for item in lst:
+        if q in item["name"].lower() or qu in item["code"]:
+            out.append(item)
+    return out
+
+def ref_list_keyboard(kind, page=0, query=""):
+    lst = get_filtered_ref_list(kind, query)
     per = 10
     start = page * per
     end = start + per
-    total_pages = (len(lst) + per - 1) // per
+    total_pages = max(1, (len(lst) + per - 1) // per)
     kb = []
     for i in range(start, min(end, len(lst))):
         item = lst[i]
@@ -424,10 +436,18 @@ def ref_list_keyboard(kind, page=0):
         nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"refpage_{kind}_{page+1}"))
     if nav:
         kb.append(nav)
-    return InlineKeyboardMarkup(kb), f"اختار من {kind} - صفحة {page+1} من {total_pages} - العدد الكلي {len(lst)}"
+    title = f"بحث: {query} - " if query else ""
+    return InlineKeyboardMarkup(kb), f"{title}اختار من {kind} - صفحة {page+1} من {total_pages} - العدد {len(lst)}"
 
-async def send_ref_list(update, context, kind, page=0):
-    kb, txt = ref_list_keyboard(kind, page)
+async def send_ref_list(update, context, kind, page=0, query=""):
+    uid = None
+    if update.message:
+        uid = update.message.from_user.id
+    elif update.callback_query:
+        uid = update.callback_query.from_user.id
+    if uid is not None:
+        context.bot_data[f"ref_filter_{uid}"] = {"kind": kind, "query": query}
+    kb, txt = ref_list_keyboard(kind, page, query)
     if update.message:
         await update.message.reply_text(txt, reply_markup=kb)
     elif update.callback_query:
@@ -482,7 +502,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         kind = parts[1]
         page = int(parts[2])
-        kb, txt = ref_list_keyboard(kind, page)
+        filt = context.bot_data.get(f"ref_filter_{query.from_user.id}", {})
+        q = filt.get("query", "")
+        kb, txt = ref_list_keyboard(kind, page, q)
         try:
             await query.message.edit_text(txt, reply_markup=kb)
         except:
@@ -492,7 +514,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         kind = parts[1]
         idx = int(parts[2])
-        lst = get_sorted_ref_list(kind)
+        filt = context.bot_data.get(f"ref_filter_{query.from_user.id}", {})
+        q = filt.get("query", "")
+        lst = get_filtered_ref_list(kind, q)
         if 0 <= idx < len(lst):
             item = lst[idx]
             await query.message.reply_text(format_ref(kind, item))
@@ -614,17 +638,11 @@ async def ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE, kind, 
             await update.message.reply_text("Please send /start first.")
             return
     if not context.args:
-        await send_ref_list(update, context, kind, 0)
+        await send_ref_list(update, context, kind, 0, "")
         return
     query = " ".join(context.args)
-    result, _ = search_ref(kind, query)
-    if result is None:
-        await update.message.reply_text(f"❌ ملقيتش {label} اسمها: {query}")
-        return
-    if isinstance(result, tuple) and result[0] == "multiple":
-        await update.message.reply_text(format_ref_list(kind, result[1]))
-        return
-    await update.message.reply_text(format_ref(kind, result))
+    await send_ref_list(update, context, kind, 0, query)
+    return
 
 async def cities_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ref_command(update, context, "cities", "مدينة", "/cities Cairo  او  /cities EGCAI")
@@ -647,7 +665,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     if is_download_request(text):
         return await download_doc(update, context)
-    # ===== التعديل الاخير: لو كتب الكلمة لوحدها يطلع الليستة كلها =====
+    # ===== لو كتب الكلمة لوحدها يطلع الليستة كلها =====
     bare = text.strip().lstrip("/").strip().lower()
     bare_map = {
         "country": "country", "countries": "country", "دولة": "country", "دول": "country",
@@ -658,9 +676,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     if bare in bare_map:
         kind = bare_map[bare]
-        await send_ref_list(update, context, kind, 0)
+        await send_ref_list(update, context, kind, 0, "")
         return
-    # ===== لو كتب Cities Cairo / Country Egypt ... الخ =====
+    # ===== بحث جوه الليستة: Cities Cairo / Country Eg / Currency US ... =====
     low = text.strip().lower()
     prefixes = [
         ("cities ", "cities"), ("city ", "cities"), ("مدينة ", "cities"),
@@ -672,17 +690,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for pref, kind in prefixes:
         if low.startswith(pref) or low.startswith("/" + pref):
             q = text.strip().lstrip("/").strip().split(" ", 1)[1] if " " in text.strip() else ""
-            if q:
-                result, _ = search_ref(kind, q)
-                if result is not None:
-                    if isinstance(result, tuple) and result[0] == "multiple":
-                        await update.message.reply_text(format_ref_list(kind, result[1]))
-                        return
-                    await update.message.reply_text(format_ref(kind, result))
-                    return
-                else:
-                    await update.message.reply_text(f"❌ ملقيتش في {kind}: {q}")
-                    return
+            await send_ref_list(update, context, kind, 0, q)
+            return
     # ===== لو كتب كلمة لوحدها زي Cairo / USD / Box =====
     q_single = text.strip().lstrip("/").strip()
     if len(q_single) >= 2:
