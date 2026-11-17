@@ -11,17 +11,15 @@ REJECT_WAIT = 5 * 60
 DOCS_FILE = "docs_index.json"
 os.makedirs("docs", exist_ok=True)
 
-# ============ نفس اسامي الملفات الـ 3 بالظبط ============
+# ملفين بس - شلنا gs1 exle.xlsx
 EXCEL_FILES = [
     "gs1xlsx.xlsx",
-    "gs1 exle.xlsx",
     "GPC as of May 2023 v20230605 EN.xlsx",
 ]
 
-# البوت هيحملهم مرة واحدة اول ما يشتغل
-BRICKS = {}      # key = brick_title.lower()
-BRICK_BY_CODE = {}  # key = brick_code
-ATTRIBUTES = {}  # key = brick_title.lower()
+BRICKS = {}
+BRICK_BY_CODE = {}
+ATTRIBUTES = {}
 
 def load_gpc():
     print("Loading GPC Excel files...")
@@ -31,7 +29,6 @@ def load_gpc():
             continue
         try:
             wb = openpyxl.load_workbook(fname, read_only=True, data_only=True)
-            # جرب كل الشيتات، اول شيت فيه داتا هو الصح
             ws = wb["Schema"] if "Schema" in wb.sheetnames else wb[wb.sheetnames[0]]
             rows = list(ws.iter_rows(values_only=True))
             print(f"Loaded {fname}: {len(rows)} rows")
@@ -121,7 +118,27 @@ def generate_code(users):
         if all(u.get("code") != code for u in users.values()):
             return code
 
-# ============ البحث في GPC ============
+# ===== تصليح التزيل =====
+def clean_text(text):
+    if not text:
+        return ""
+    for ch in ["\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u200c", "\u200d", "\u0640", "ـ"]:
+        text = text.replace(ch, "")
+    arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+    for i, d in enumerate(arabic_digits):
+        text = text.replace(d, str(i))
+    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ة", "ه")
+    return text.strip()
+
+def is_download_request(text):
+    t = clean_text(text)
+    return bool(re.search(r'(تزيل|تنزيل|تحميل|download|نزل)', t))
+
+def extract_number(text):
+    t = clean_text(text)
+    m = re.search(r'(\d+)', t)
+    return int(m.group(1)) if m else None
+
 def normalize(text):
     return re.sub(r'\s+', ' ', (text or "").strip().lower())
 
@@ -242,7 +259,7 @@ async def save_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
     docs = load_docs()
-    num = len(docs) + 1
+    num = max([d["num"] for d in docs], default=0) + 1
     filename = f"docs/{num}.{ext}"
     await file.download_to_drive(filename)
     docs.append({"num": num, "name": caption, "path": filename})
@@ -268,12 +285,10 @@ async def download_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if uid not in users or users[uid].get("status") != "accepted":
             await update.message.reply_text("Please send /start first.")
             return
-    txt = update.message.text.strip()
-    m = re.search(r'(\d+)', txt)
-    if not m:
+    num = extract_number(update.message.text)
+    if num is None:
         await update.message.reply_text("اكتب: تزيل 1")
         return
-    num = int(m.group(1))
     docs = load_docs()
     for d in docs:
         if d["num"] == num:
@@ -311,7 +326,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
     text = update.message.text or ""
-    if "تزيل" in text or "تنزيل" in text:
+    # التزيل اول حاجة قبل GPC وقبل اي حاجة
+    if is_download_request(text):
         return await download_doc(update, context)
     users = load_users()
     if str(user.id) == str(ADMIN_ID):
