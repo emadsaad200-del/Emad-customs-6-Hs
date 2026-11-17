@@ -7,6 +7,23 @@ ADMIN_ID = os.getenv("ADMIN_ID")
 USERS_FILE = "users.json"
 REJECT_WAIT = 5 * 60  # 5 minutes
 
+# --- الجديد: ملفات المستندات ---
+DOCS_FILE = "docs_index.json"
+os.makedirs("docs", exist_ok=True)
+
+def load_docs():
+    if not os.path.exists(DOCS_FILE):
+        return []
+    try:
+        with open(DOCS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_docs(docs):
+    with open(DOCS_FILE, "w", encoding="utf-8") as f:
+        json.dump(docs, f, ensure_ascii=False, indent=2)
+
 WELCOME_MESSAGE = """Welcome to Captain Emad Customs Bot.
 
 After the trial and subscription for 150 EGP, you can inquire about the customs item by code or by item name in Arabic or English.
@@ -113,6 +130,65 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=int(uid), text="❌ Your request was rejected by Captain Emad. You can send again after 5 minutes.")
             await query.message.reply_text(f"Rejected ❌\nCode: {users[uid]['code']} - {users[uid]['name']}")
 
+# --- الجديد: حفظ المستندات - الادمن بس ---
+async def save_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # الادمن بس اللي يرفع
+    if str(update.message.from_user.id) != str(ADMIN_ID):
+        return
+    caption = (update.message.caption or "").strip() or "بدون اسم"
+    file = None
+    ext = "jpg"
+    if update.message.photo:
+        file = await update.message.photo[-1].get_file()
+    elif update.message.document:
+        file = await update.message.document.get_file()
+        ext = update.message.document.file_name.split(".")[-1] if "." in update.message.document.file_name else "pdf"
+    else:
+        return
+    docs = load_docs()
+    num = len(docs) + 1
+    filename = f"docs/{num}.{ext}"
+    await file.download_to_drive(filename)
+    docs.append({"num": num, "name": caption, "path": filename})
+    save_docs(docs)
+    await update.message.reply_text(f"✅ اتحفظ برقم {num}\n📄 {caption}\n\nعشان تنزله اكتب: تزيل {num}")
+
+# --- الجديد: قايمة المستندات ---
+async def list_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    docs = load_docs()
+    if not docs:
+        await update.message.reply_text("مفيش مستندات لسه")
+        return
+    txt = "📁 المستندات:\n\n"
+    for d in docs:
+        txt += f"{d['num']} - {d['name']}\n"
+    txt += "\nاكتب: تزيل 1"
+    await update.message.reply_text(txt)
+
+# --- الجديد: تزيل رقم ---
+async def download_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    uid = str(user.id)
+    # الادمن يقدر ينزل على طول
+    if str(user.id) != str(ADMIN_ID):
+        users = load_users()
+        if uid not in users or users[uid].get("status") != "accepted":
+            await update.message.reply_text("Please send /start first.")
+            return
+    txt = update.message.text.strip()
+    for w in ["تزيل", "تنزيل", "رقم"]:
+        txt = txt.replace(w, "")
+    txt = txt.strip()
+    if not txt.isdigit():
+        return
+    num = int(txt)
+    docs = load_docs()
+    for d in docs:
+        if d["num"] == num:
+            await update.message.reply_document(document=open(d["path"], "rb"), caption=f"📄 رقم {num} - {d['name']}")
+            return
+    await update.message.reply_text(f"❌ مفيش مستند رقم {num}")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
@@ -183,7 +259,11 @@ def main():
     app.add_handler(CommandHandler("users", list_users))
     app.add_handler(CommandHandler("delete", delete_user))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("docs", list_docs))
     app.add_handler(CallbackQueryHandler(button_click))
+    # الجديد: لازم قبل handle_message عشان تزيل تشتغل
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'(تزيل|تنزيل).*\\d'), download_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("Bot is running...")
     app.run_polling()
