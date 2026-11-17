@@ -15,9 +15,9 @@ EXCEL_FILES = [
     "GPC as of May 2023 v20230605 EN.xlsx",
 ]
 
-# ===== فهرس خفيف بس - اسم وكود بس، من غير اتربيوت - مش بياكل رامات =====
-BRICK_INDEX = {}  # key = title.lower() -> brick dict
+BRICK_INDEX = {}
 BRICK_BY_CODE = {}
+BRICK_ATTRS = {}  # ===== جديد: الاتربيوت متخزنة جاهزة، مش بنفتح الاكسل كل مرة =====
 
 def build_index():
     print("Building light index...")
@@ -48,6 +48,22 @@ def build_index():
                         }
                         if brick_code:
                             BRICK_BY_CODE[brick_code] = key
+                    # ===== جديد: بنجمع الاتربيوت في نفس اللفة، مرة واحدة بس =====
+                    if len(r) > 14 and r[13] is not None:
+                        attr_code = str(r[13])
+                        attr_title = r[14]
+                        val_title = str(r[17]) if len(r) > 17 and r[17] is not None else None
+                        if key not in BRICK_ATTRS:
+                            BRICK_ATTRS[key] = []
+                        ex = None
+                        for a in BRICK_ATTRS[key]:
+                            if a["attribute_code"] == attr_code:
+                                ex = a; break
+                        if not ex:
+                            ex = {"attribute_code": attr_code, "attribute_title": attr_title, "values": []}
+                            BRICK_ATTRS[key].append(ex)
+                        if val_title and val_title not in ex["values"]:
+                            ex["values"].append(val_title)
                 except:
                     continue
             wb.close()
@@ -136,50 +152,9 @@ def search_gpc_fast(query):
         return ("multiple", matches[:10]), None
     return None, None
 
-# ===== تعديل 1: الاتربيوت بنجيبها ونقف اول ما نلاقي الصنف، مش بنلف الملف كله =====
+# ===== جديد: بقى بيجيب من الذاكرة في اقل من ثانية، مش بيفتح الاكسل =====
 def get_attrs_for_brick(brick_title):
-    attrs = []
-    target = brick_title.strip().lower()
-    found = False
-    for fname in EXCEL_FILES:
-        if not os.path.exists(fname):
-            continue
-        try:
-            wb = openpyxl.load_workbook(fname, read_only=True, data_only=True)
-            ws = wb["Schema"] if "Schema" in wb.sheetnames else wb[wb.sheetnames[0]]
-            for r in ws.iter_rows(values_only=True):
-                try:
-                    if not r or len(r) < 14:
-                        continue
-                    cur_title = str(r[10] or "").strip().lower()
-                    # لو لقينا الصنف وخلصنا ودخلنا في صنف تاني، نقف فورا - ده اللي كان بيخليه بطيء
-                    if found and cur_title != "" and cur_title != target:
-                        break
-                    if cur_title != target:
-                        continue
-                    found = True
-                    if r[13] is None:
-                        continue
-                    attr_code = str(r[13])
-                    attr_title = r[14]
-                    val_title = str(r[17]) if len(r) > 17 and r[17] is not None else None
-                    ex = None
-                    for a in attrs:
-                        if a["attribute_code"] == attr_code:
-                            ex = a; break
-                    if not ex:
-                        ex = {"attribute_code": attr_code, "attribute_title": attr_title, "values": []}
-                        attrs.append(ex)
-                    if val_title and val_title not in ex["values"]:
-                        ex["values"].append(val_title)
-                except:
-                    continue
-            wb.close()
-            if attrs:
-                break
-        except:
-            continue
-    return attrs
+    return BRICK_ATTRS.get(brick_title.strip().lower(), [])
 
 def format_brick(brick, attrs):
     txt = f"📦 {brick['brick_title']}\n"
@@ -237,10 +212,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print(f"Admin send error: {e}")
 
-# ===== تعديل 2: الزرار يرد فورا بالصنف، وبعدين يجيب الاتربيوت =====
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    # ===== اهم تصليح - رد على الزرار فورا قبل اي بحث، عشان ميعملش timeout =====
     try:
         await query.answer()
     except Exception:
@@ -266,26 +239,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             idx = int(data[4:])
             keys = context.user_data.get("gpc_matches", [])
-            # لو الـ user_data اتمسح بسبب ريستارت، نجيب من bot_data
             if not keys and context.bot_data.get(f"gpc_{query.from_user.id}"):
                 keys = context.bot_data.get(f"gpc_{query.from_user.id}", [])
             if 0 <= idx < len(keys):
                 b = keys[idx]
-                # رد فورا بالبيانات الاساسية، عشان اليوزر ميفكرش ان البوت مردش
-                await query.message.reply_text(format_brick(b, []))
-                # وبعدين هات الاتربيوت في رسالة تانية
                 attrs = get_attrs_for_brick(b["brick_title"])
-                if attrs:
-                    txt = "⚙️ Attributes:\n"
-                    for a in attrs:
-                        txt += f"\n• {a['attribute_title']} ({a['attribute_code']})\n"
-                        if a.get("values"):
-                            vals = a["values"][:15]
-                            txt += "  " + ", ".join(vals)
-                            if len(a["values"]) > 15:
-                                txt += f" ... (+{len(a['values'])-15} more)"
-                            txt += "\n"
-                    await query.message.reply_text(txt)
+                await query.message.reply_text(format_brick(b, attrs))
             else:
                 await query.message.reply_text("القايمة دي انتهت، ابعت /gpc تاني واختار من جديد")
         except Exception as e:
@@ -370,7 +329,6 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     attrs = get_attrs_for_brick(brick["brick_title"])
     await update.message.reply_text(format_brick(brick, attrs))
 
-# ===== تعديل 3: الادمن يجرب زي اليوزر بالظبط =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
@@ -378,7 +336,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_download_request(text):
         return await download_doc(update, context)
     users = load_users()
-    # الادمن دلوقتي يقدر يجرب البحث زي اليوزر، مش بيتجاهل رسايله
     if str(user.id) == str(ADMIN_ID):
         if len(text.strip()) >= 3:
             brick, _ = search_gpc_fast(text)
