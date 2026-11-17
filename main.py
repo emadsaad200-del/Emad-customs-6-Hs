@@ -136,10 +136,11 @@ def search_gpc_fast(query):
         return ("multiple", matches[:10]), None
     return None, None
 
-# الاتربيوت بنجيبها بس لما اليوزر يختار صنف واحد، مش لكل البحث
+# ===== تعديل 1: الاتربيوت بنجيبها ونقف اول ما نلاقي الصنف، مش بنلف الملف كله =====
 def get_attrs_for_brick(brick_title):
     attrs = []
     target = brick_title.strip().lower()
+    found = False
     for fname in EXCEL_FILES:
         if not os.path.exists(fname):
             continue
@@ -150,8 +151,13 @@ def get_attrs_for_brick(brick_title):
                 try:
                     if not r or len(r) < 14:
                         continue
-                    if str(r[10] or "").strip().lower() != target:
+                    cur_title = str(r[10] or "").strip().lower()
+                    # لو لقينا الصنف وخلصنا ودخلنا في صنف تاني، نقف فورا - ده اللي كان بيخليه بطيء
+                    if found and cur_title != "" and cur_title != target:
+                        break
+                    if cur_title != target:
                         continue
+                    found = True
                     if r[13] is None:
                         continue
                     attr_code = str(r[13])
@@ -231,6 +237,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print(f"Admin send error: {e}")
 
+# ===== تعديل 2: الزرار يرد فورا بالصنف، وبعدين يجيب الاتربيوت =====
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     # ===== اهم تصليح - رد على الزرار فورا قبل اي بحث، عشان ميعملش timeout =====
@@ -259,10 +266,28 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             idx = int(data[4:])
             keys = context.user_data.get("gpc_matches", [])
+            # لو الـ user_data اتمسح بسبب ريستارت، نجيب من bot_data
+            if not keys and context.bot_data.get(f"gpc_{query.from_user.id}"):
+                keys = context.bot_data.get(f"gpc_{query.from_user.id}", [])
             if 0 <= idx < len(keys):
                 b = keys[idx]
+                # رد فورا بالبيانات الاساسية، عشان اليوزر ميفكرش ان البوت مردش
+                await query.message.reply_text(format_brick(b, []))
+                # وبعدين هات الاتربيوت في رسالة تانية
                 attrs = get_attrs_for_brick(b["brick_title"])
-                await query.message.reply_text(format_brick(b, attrs))
+                if attrs:
+                    txt = "⚙️ Attributes:\n"
+                    for a in attrs:
+                        txt += f"\n• {a['attribute_title']} ({a['attribute_code']})\n"
+                        if a.get("values"):
+                            vals = a["values"][:15]
+                            txt += "  " + ", ".join(vals)
+                            if len(a["values"]) > 15:
+                                txt += f" ... (+{len(a['values'])-15} more)"
+                            txt += "\n"
+                    await query.message.reply_text(txt)
+            else:
+                await query.message.reply_text("القايمة دي انتهت، ابعت /gpc تاني واختار من جديد")
         except Exception as e:
             print(f"gpc callback error: {e}")
 
@@ -338,12 +363,14 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if isinstance(brick, tuple) and brick[0] == "multiple":
         matches = brick[1]
         context.user_data["gpc_matches"] = matches
+        context.bot_data[f"gpc_{update.message.from_user.id}"] = matches
         keyboard = [[InlineKeyboardButton(m["brick_title"][:60], callback_data=f"gpc_{i}")] for i, m in enumerate(matches)]
         await update.message.reply_text(f"لقيت {len(matches)} صنف، اختار واحد:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     attrs = get_attrs_for_brick(brick["brick_title"])
     await update.message.reply_text(format_brick(brick, attrs))
 
+# ===== تعديل 3: الادمن يجرب زي اليوزر بالظبط =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
@@ -351,7 +378,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_download_request(text):
         return await download_doc(update, context)
     users = load_users()
+    # الادمن دلوقتي يقدر يجرب البحث زي اليوزر، مش بيتجاهل رسايله
     if str(user.id) == str(ADMIN_ID):
+        if len(text.strip()) >= 3:
+            brick, _ = search_gpc_fast(text)
+            if brick is not None:
+                if isinstance(brick, tuple) and brick[0] == "multiple":
+                    matches = brick[1]
+                    context.user_data["gpc_matches"] = matches
+                    context.bot_data[f"gpc_{user.id}"] = matches
+                    keyboard = [[InlineKeyboardButton(m["brick_title"][:60], callback_data=f"gpc_{i}")] for i, m in enumerate(matches)]
+                    await update.message.reply_text(f"لقيت {len(matches)} صنف قريب من: {text}\nاختار واحد:", reply_markup=InlineKeyboardMarkup(keyboard))
+                    return
+                attrs = get_attrs_for_brick(brick["brick_title"])
+                await update.message.reply_text(format_brick(brick, attrs))
+                return
         return
     if uid not in users:
         await update.message.reply_text("Please send /start first.")
@@ -368,6 +409,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if isinstance(brick, tuple) and brick[0] == "multiple":
                 matches = brick[1]
                 context.user_data["gpc_matches"] = matches
+                context.bot_data[f"gpc_{user.id}"] = matches
                 keyboard = [[InlineKeyboardButton(m["brick_title"][:60], callback_data=f"gpc_{i}")] for i, m in enumerate(matches)]
                 await update.message.reply_text(f"لقيت {len(matches)} صنف قريب من: {text}\nاختار واحد:", reply_markup=InlineKeyboardMarkup(keyboard))
                 return
