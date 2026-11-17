@@ -54,25 +54,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     uid = str(user.id)
     now = time.time()
-
-    # If user exists and rejected and less than 5 min -> block
     if uid in users and users[uid].get("status") == "rejected":
         last = users[uid].get("rejected_at", 0)
         remaining = int((REJECT_WAIT - (now - last)) / 60) + 1
         if now - last < REJECT_WAIT:
             await update.message.reply_text(f"Your request was rejected. You can send again after {remaining} minutes.")
             return
-        # After 5 min, allow again -> reset to pending
         users[uid]["status"] = "pending"
         users[uid]["requested_at"] = now
         save_users(users)
-
-    # If already accepted
     if uid in users and users[uid].get("status") == "accepted":
         await update.message.reply_text(WELCOME_MESSAGE + "\n\n✅ Your account is accepted. Send the item code or item name.")
         return
-
-    # New user or re-request
     if uid not in users:
         code = generate_code(users)
         users[uid] = {
@@ -89,11 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users[uid]["status"] = "pending"
         users[uid]["requested_at"] = now
         save_users(users)
-
-    # Send welcome + waiting to user
     await update.message.reply_text(WELCOME_MESSAGE + f"\n\nYour Code: {code}\nWaiting for acceptance from Captain Emad.")
-
-    # Send to admin with 2 buttons
     if ADMIN_ID:
         keyboard = [[
             InlineKeyboardButton("✅ قبول / Accept", callback_data=f"accept_{uid}"),
@@ -113,7 +102,6 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     users = load_users()
     data = query.data
-
     if data.startswith("accept_"):
         uid = data.split("_")[1]
         if uid in users:
@@ -130,9 +118,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=int(uid), text="❌ Your request was rejected by Captain Emad. You can send again after 5 minutes.")
             await query.message.reply_text(f"Rejected ❌\nCode: {users[uid]['code']} - {users[uid]['name']}")
 
-# --- الجديد: حفظ المستندات - الادمن بس ---
 async def save_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # الادمن بس اللي يرفع
     if str(update.message.from_user.id) != str(ADMIN_ID):
         return
     caption = (update.message.caption or "").strip() or "بدون اسم"
@@ -153,7 +139,6 @@ async def save_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_docs(docs)
     await update.message.reply_text(f"✅ اتحفظ برقم {num}\n📄 {caption}\n\nعشان تنزله اكتب: تزيل {num}")
 
-# --- الجديد: قايمة المستندات ---
 async def list_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     docs = load_docs()
     if not docs:
@@ -165,11 +150,9 @@ async def list_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt += "\nاكتب: تزيل 1"
     await update.message.reply_text(txt)
 
-# --- الجديد: تزيل رقم - النسخة النهائية ---
 async def download_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
-    # الادمن يقدر ينزل على طول
     if str(user.id) != str(ADMIN_ID):
         users = load_users()
         if uid not in users or users[uid].get("status") != "accepted":
@@ -195,14 +178,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
     text = update.message.text or ""
-    # --- النهائي: تزيل هنا على طول قبل اي حاجة، من غير Regex ---
     if "تزيل" in text or "تنزيل" in text:
         return await download_doc(update, context)
     users = load_users()
-    # Admin messages are commands, ignore here
     if str(user.id) == str(ADMIN_ID):
         return
-    # If not registered, tell to start
     if uid not in users:
         await update.message.reply_text("Please send /start first.")
         return
@@ -212,12 +192,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if users[uid].get("status") == "rejected":
         await update.message.reply_text("Your request was rejected. Send /start again after 5 minutes.")
         return
-    # Accepted user -> forward to admin as inquiry
     if ADMIN_ID:
         await context.bot.send_message(chat_id=int(ADMIN_ID), text=f"Inquiry from {users[uid]['code']} - {users[uid]['name']}:\n{update.message.text}")
     await update.message.reply_text("Received. Captain Emad will reply to you.")
 
-# --- Admin Commands ---
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.from_user.id) != str(ADMIN_ID):
         return
@@ -254,6 +232,31 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.from_user.id) != str(ADMIN_ID):
         return
     users = load_users()
-    accepted = sum(1 for u in users.values() if u.get("status")=="accepted")
-    pending = sum(1 for u in users.values() if u.get("status")=="pending")
-    rejected = sum(1 for u in users.values()
+    accepted = 0
+    pending = 0
+    rejected = 0
+    for u in users.values():
+        s = u.get("status")
+        if s == "accepted":
+            accepted += 1
+        elif s == "pending":
+            pending += 1
+        elif s == "rejected":
+            rejected += 1
+    await update.message.reply_text(f"Total: {len(users)}\nAccepted: {accepted}\nPending: {pending}\nRejected: {rejected}")
+
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("users", list_users))
+    app.add_handler(CommandHandler("delete", delete_user))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("docs", list_docs))
+    app.add_handler(CallbackQueryHandler(button_click))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("Bot is running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
