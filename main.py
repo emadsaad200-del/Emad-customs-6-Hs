@@ -132,7 +132,7 @@ def build_reference_index():
     except Exception as e: print(f"Ref index error: {e}")
 build_reference_index()
 
-# ===== التوكيلات - مع تصليح Merge =====
+# ===== التوكيلات =====
 SHIPPING_FILE = "ايميلات_وارقام_توكيلات.xlsx"
 LINE_CONTACTS = {}; LINE_NAMES = {}; ROTATION = []; SLMC_LIST = []
 def clean_cell(v): return "" if v is None else str(v).strip()
@@ -154,7 +154,7 @@ def build_shipping_index():
                     if key not in LINE_CONTACTS: LINE_CONTACTS[key] = []
                     LINE_CONTACTS[key].append({"line": cur_line, "name": name, "position": pos, "email": email, "number": num, "booking": booking, "final": final, "vgm": vgm, "draft": draft, "invoice": invoice, "pickup": pickup})
                 except: continue
-        # ===== تصليح Merge: POL فاضي بيكمل من اللي قبله =====
+        # SERVICE ROTATION - تصليح Merge
         if "SERVICE ROTATION" in wb.sheetnames:
             ws = wb["SERVICE ROTATION"]; last_pol = ""
             for r in ws.iter_rows(values_only=True):
@@ -167,18 +167,31 @@ def build_shipping_index():
                     if not pol or not pod: continue
                     ROTATION.append({"pol": pol, "pod": pod, "line": clean_cell(r[2]), "tt": clean_cell(r[3]), "country": clean_cell(r[4])})
                 except: continue
+        # SLMC - حل عام يقرا مهما كان مكان العمود
         if "SLMC" in wb.sheetnames:
-            ws = wb["SLMC"]; last_pol = ""
+            ws = wb["SLMC"]; last_pol = ""; dbg = 0
             for r in ws.iter_rows(values_only=True):
                 try:
                     if not r: continue
-                    if str(r[1]).upper() == "POL": continue
-                    pol = clean_cell(r[1]) or last_pol
+                    if dbg < 5:
+                        print(f"SLMC RAW: {r}"); dbg += 1
+                    vals = [clean_cell(x) for x in r]
+                    if not any(vals): continue
+                    if "POL" in [v.upper() for v in vals]: continue
+                    pol = ""; pod = ""; line = ""; tt = ""; country = ""
+                    if len(vals) >= 4 and vals[1] and vals[2]:
+                        pol = vals[1]; pod = vals[2]; line = vals[3]; tt = vals[4] if len(vals) > 4 else ""; country = vals[5] if len(vals) > 5 else ""
+                    elif len(vals) >= 3 and vals[0] and vals[1]:
+                        pol = vals[0]; pod = vals[1]; line = vals[2]; tt = vals[3] if len(vals) > 3 else ""; country = vals[4] if len(vals) > 4 else ""
+                    elif len(vals) >= 3 and vals[2]:
+                        pol = last_pol; pod = vals[2]; line = vals[3] if len(vals) > 3 else ""; tt = vals[4] if len(vals) > 4 else ""; country = vals[5] if len(vals) > 5 else ""
+                    elif len(vals) >= 2 and vals[1]:
+                        pol = last_pol; pod = vals[1]; line = vals[2] if len(vals) > 2 else ""
                     if pol: last_pol = pol
-                    pod = clean_cell(r[2])
                     if not pol or not pod: continue
-                    SLMC_LIST.append({"pol": pol, "pod": pod, "line": clean_cell(r[3]), "tt": clean_cell(r[4]), "country": clean_cell(r[5])})
-                except: continue
+                    SLMC_LIST.append({"pol": pol, "pod": pod, "line": line, "tt": tt, "country": country})
+                except Exception as e:
+                    print(f"SLMC row error: {e} - {r}"); continue
         wb.close()
         if os.path.exists(OVERRIDE_FILE):
             try:
