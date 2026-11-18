@@ -132,10 +132,95 @@ def build_reference_index():
     except Exception as e: print(f"Ref index error: {e}")
 build_reference_index()
 
+# ===== ارقام تسجيل الشركات - جديد =====
+COMPANIES_FILE = "ارقام_تسجيل_الشركات_111111.xlsx"
+COMPANY_LIST = []; COMPANY_BY_REG = {}; COMPANY_BY_FILE = {}
+def clean_cell(v): return "" if v is None else str(v).strip()
+def norm_ar(s):
+    if not s: return ""
+    s = str(s).strip().lower()
+    for ch in ["\u200e","\u200f","\u202a","\u202b","\u202c","\u202d","\u202e","\u200c","\u200d","\u0640","ـ"]: s = s.replace(ch, "")
+    s = s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ة","ه").replace("ى","ي")
+    s = re.sub(r'\s+', ' ', s)
+    return s
+def build_companies_index():
+    if not os.path.exists(COMPANIES_FILE): print("ارقام_تسجيل_الشركات_111111.xlsx not found"); return
+    try:
+        wb = openpyxl.load_workbook(COMPANIES_FILE, read_only=True, data_only=True)
+        ws = wb[wb.sheetnames[0]]
+        for r in ws.iter_rows(values_only=True):
+            try:
+                if not r: continue
+                name = clean_cell(r[0]) if len(r) > 0 else ""
+                if not name or "الاسم" in name: continue
+                file_no = clean_cell(r[1]) if len(r) > 1 else ""
+                reg_no = clean_cell(r[2]) if len(r) > 2 else ""
+                entity = clean_cell(r[3]) if len(r) > 3 else ""
+                activity = clean_cell(r[4]) if len(r) > 4 else ""
+                status = clean_cell(r[5]) if len(r) > 5 else ""
+                address = clean_cell(r[6]) if len(r) > 6 else ""
+                item = {"name": name, "file_no": file_no, "reg_no": reg_no, "entity": entity, "activity": activity, "status": status, "address": address}
+                COMPANY_LIST.append(item)
+                if reg_no: COMPANY_BY_REG[reg_no] = item
+                if file_no: COMPANY_BY_FILE[file_no] = item
+            except: continue
+        wb.close(); print(f"Companies indexed: {len(COMPANY_LIST)}")
+    except Exception as e: print(f"Companies index error: {e}")
+build_companies_index()
+def search_company(q):
+    qq = (q or "").strip()
+    if not qq: return []
+    # بحث برقم التسجيل او رقم الملف بالظبط
+    if qq in COMPANY_BY_REG: return [COMPANY_BY_REG[qq]]
+    if qq in COMPANY_BY_FILE: return [COMPANY_BY_FILE[qq]]
+    # بحث برقم جزئي
+    if qq.isdigit():
+        out = [c for c in COMPANY_LIST if qq in c["reg_no"] or qq in c["file_no"]]
+        if out: return out[:10]
+    nq = norm_ar(qq)
+    out = []
+    for c in COMPANY_LIST:
+        if nq in norm_ar(c["name"]): out.append(c)
+        if len(out) >= 10: break
+    return out
+def format_company(c):
+    txt = f"🏢 {c['name']}\n"
+    if c["reg_no"]: txt += f"🔢 رقم التسجيل: {c['reg_no']}\n"
+    if c["file_no"]: txt += f"📁 رقم الملف: {c['file_no']}\n"
+    if c["entity"]: txt += f"🏛️ الكيان: {c['entity']}\n"
+    if c["activity"]: txt += f"📦 النشاط: {c['activity']}\n"
+    if c["status"]: txt += f"📄 حاله الملف: {c['status']}\n"
+    if c["address"]: txt += f"📍 العنوان: {c['address']}\n"
+    return txt.strip()
+def get_filtered_companies(query=""):
+    q = norm_ar(query)
+    if not q: return COMPANY_LIST
+    return [c for c in COMPANY_LIST if q in norm_ar(c["name"]) or q in c["reg_no"] or q in c["file_no"]]
+def company_list_keyboard(page=0, query=""):
+    lst = get_filtered_companies(query); per = 10; start = page*per; end = start+per; total_pages = max(1, (len(lst)+per-1)//per); kb = []
+    for i in range(start, min(end, len(lst))):
+        c = lst[i]; kb.append([InlineKeyboardButton(f"{c['name'][:50]} - {c['reg_no']}", callback_data=f"compsel_{i}")])
+    nav = []
+    if page > 0: nav.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"comppage_{page-1}"))
+    if page < total_pages-1: nav.append(InlineKeyboardButton("التالي ➡️", callback_data=f"comppage_{page+1}"))
+    if nav: kb.append(nav)
+    kb.append([InlineKeyboardButton("🏠 القايمة الرئيسية", callback_data="menu_main")])
+    title = f"بحث: {query} - " if query else ""
+    return InlineKeyboardMarkup(kb), f"{title}اختار الشركة - صفحة {page+1} من {total_pages} - العدد {len(lst)}"
+async def send_company_list(update, context, page=0, query=""):
+    uid = None
+    if update.message: uid = update.message.from_user.id
+    elif update.callback_query: uid = update.callback_query.from_user.id
+    if uid is not None: context.bot_data[f"comp_filter_{uid}"] = {"query": query}
+    kb, txt = company_list_keyboard(page, query)
+    if update.message: await update.message.reply_text(txt, reply_markup=kb)
+    elif update.callback_query:
+        try: await update.callback_query.message.edit_text(txt, reply_markup=kb)
+        except: await update.callback_query.message.reply_text(txt, reply_markup=kb)
+
 # ===== التوكيلات =====
 SHIPPING_FILE = "ايميلات_وارقام_توكيلات.xlsx"
 LINE_CONTACTS = {}; LINE_NAMES = {}; ROTATION = []; SLMC_LIST = []
-def clean_cell(v): return "" if v is None else str(v).strip()
 def build_shipping_index():
     if not os.path.exists(SHIPPING_FILE): print("ايميلات_وارقام_توكيلات.xlsx not found"); return
     try:
@@ -154,7 +239,6 @@ def build_shipping_index():
                     if key not in LINE_CONTACTS: LINE_CONTACTS[key] = []
                     LINE_CONTACTS[key].append({"line": cur_line, "name": name, "position": pos, "email": email, "number": num, "booking": booking, "final": final, "vgm": vgm, "draft": draft, "invoice": invoice, "pickup": pickup})
                 except: continue
-        # SERVICE ROTATION - تصليح Merge
         if "SERVICE ROTATION" in wb.sheetnames:
             ws = wb["SERVICE ROTATION"]; last_pol = ""
             for r in ws.iter_rows(values_only=True):
@@ -167,14 +251,11 @@ def build_shipping_index():
                     if not pol or not pod: continue
                     ROTATION.append({"pol": pol, "pod": pod, "line": clean_cell(r[2]), "tt": clean_cell(r[3]), "country": clean_cell(r[4])})
                 except: continue
-        # SLMC - حل عام يقرا مهما كان مكان العمود
         if "SLMC" in wb.sheetnames:
-            ws = wb["SLMC"]; last_pol = ""; dbg = 0
+            ws = wb["SLMC"]; last_pol = ""
             for r in ws.iter_rows(values_only=True):
                 try:
                     if not r: continue
-                    if dbg < 5:
-                        print(f"SLMC RAW: {r}"); dbg += 1
                     vals = [clean_cell(x) for x in r]
                     if not any(vals): continue
                     if "POL" in [v.upper() for v in vals]: continue
@@ -190,8 +271,7 @@ def build_shipping_index():
                     if pol: last_pol = pol
                     if not pol or not pod: continue
                     SLMC_LIST.append({"pol": pol, "pod": pod, "line": line, "tt": tt, "country": country})
-                except Exception as e:
-                    print(f"SLMC row error: {e} - {r}"); continue
+                except: continue
         wb.close()
         if os.path.exists(OVERRIDE_FILE):
             try:
@@ -245,6 +325,7 @@ def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚢 توكيلات", callback_data="menu_lines"), InlineKeyboardButton("📦 GPC", callback_data="menu_gpc")],
         [InlineKeyboardButton("🚢 Rotation", callback_data="menu_rotation"), InlineKeyboardButton("📁 المستندات / تزيل", callback_data="menu_docs")],
+        [InlineKeyboardButton("🏢 ارقام تسجيل الشركات", callback_data="menu_companies")],
         [InlineKeyboardButton("🌍 Country", callback_data="menu_country"), InlineKeyboardButton("🏙️ Cities", callback_data="menu_cities")],
         [InlineKeyboardButton("💵 Currency", callback_data="menu_currency"), InlineKeyboardButton("📦 Package", callback_data="menu_package")],
         [InlineKeyboardButton("📏 UOM", callback_data="menu_uom"), InlineKeyboardButton("🕘 اخر بحث", callback_data="menu_recent")],
@@ -351,6 +432,7 @@ HELP_TEXT = """❓ مساعدة / Help
 
 🚢 توكيلات - اكتب: توكيلات او MAERSK او ميرسك او توكيل MAERSK
 🚢 خط - اكتب: Alex Izmir او EGYPT LATTAKIA او MAERSK Alex Izmir
+🏢 شركات - اكتب: شركات او اسم الشركة او رقم التسجيل 202444732
 📦 GPC - اكتب: /gpc Airbrushes او اسم الصنف
 🌍 Country - اكتب: Country Eg او Country Egypt
 🏙️ Cities - اكتب: Cities Cai
@@ -530,6 +612,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_main":
         await query.message.reply_text("🏠 القايمة الرئيسية - اختار:", reply_markup=main_menu_keyboard()); return
     if data == "menu_lines": await send_line_list(query, context, 0, ""); return
+    if data == "menu_companies": await send_company_list(query, context, 0, ""); return
     if data == "menu_gpc": await query.message.reply_text("اكتب: /gpc Airbrushes او اسم الصنف", reply_markup=main_menu_keyboard()); return
     if data == "menu_country": await send_ref_list(query, context, "country", 0, ""); return
     if data == "menu_cities": await send_ref_list(query, context, "cities", 0, ""); return
@@ -555,6 +638,15 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users2[uid]["status"] = "pending"; users2[uid]["requested_at"] = time.time(); save_users(users2)
             await query.message.reply_text("✅ طلبك اتبعت تاني لكابتن عماد، استنى القبول")
             if ADMIN_ID: await context.bot.send_message(chat_id=int(ADMIN_ID), text=f"🔁 طلب قبول تاني\nCode: {users2[uid]['code']} - {users2[uid]['name']} - ID: {uid}")
+        return
+    if data.startswith("comppage_"):
+        page = int(data.split("_")[1]); filt = context.bot_data.get(f"comp_filter_{query.from_user.id}", {}); q = filt.get("query", ""); kb, txt = company_list_keyboard(page, q)
+        try: await query.message.edit_text(txt, reply_markup=kb)
+        except: await query.message.reply_text(txt, reply_markup=kb)
+        return
+    if data.startswith("compsel_"):
+        idx = int(data.split("_")[1]); filt = context.bot_data.get(f"comp_filter_{query.from_user.id}", {}); q = filt.get("query", ""); lst = get_filtered_companies(q)
+        if 0 <= idx < len(lst): await query.message.reply_text(format_company(lst[idx]))
         return
     if data.startswith("refpage_"):
         parts = data.split("_"); kind = parts[1]; page = int(parts[2]); filt = context.bot_data.get(f"ref_filter_{query.from_user.id}", {}); q = filt.get("query", ""); kb, txt = ref_list_keyboard(kind, page, q)
@@ -649,6 +741,12 @@ async def gpc_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = [[InlineKeyboardButton(m["brick_title"][:60], callback_data=f"gpc_{i}")] for i, m in enumerate(matches)]
         await update.message.reply_text(f"لقيت {len(matches)} صنف، اختار واحد:", reply_markup=InlineKeyboardMarkup(keyboard)); return
     attrs = get_attrs_for_brick(brick["brick_title"]); await update.message.reply_text(format_brick(brick, attrs))
+async def companies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = load_users(); uid = str(update.message.from_user.id)
+    if str(update.message.from_user.id) != str(ADMIN_ID):
+        if uid not in users or users[uid].get("status") != "accepted": await update.message.reply_text("Please send /start first."); return
+    if not context.args: await send_company_list(update, context, 0, ""); return
+    q = " ".join(context.args); add_recent(context, q); await send_company_list(update, context, 0, q); return
 async def ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE, kind, label, example):
     users = load_users(); uid = str(update.message.from_user.id)
     if str(update.message.from_user.id) != str(ADMIN_ID):
@@ -706,9 +804,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🕘 اخر 5:\n" + "\n".join([f"• {x}" for x in lst]) if lst else "لسه مفيش بحث"); return
     if bare in ["توكيلات", "توكيل", "lines", "line", "shipping lines", "خطوط", "خط"]:
         await send_line_list(update, context, 0, ""); return
+    if bare in ["شركات", "شركه", "شركة", "companies", "company", "تسجيل", "ارقام تسجيل الشركات"]:
+        await send_company_list(update, context, 0, ""); return
     if bare in ["menu", "القايمة", "القايمه", "menu_main", "القائمة"]:
         await update.message.reply_text("🏠 القايمة الرئيسية:", reply_markup=main_menu_keyboard()); return
     low = text.strip().lower()
+    # بحث شركات: شركة + اسم او رقم
+    for pref in ["شركة ", "شركه ", "شركات ", "company ", "companies "]:
+        if low.startswith(pref) or low.startswith("/"+pref):
+            q = text.strip().lstrip("/").strip().split(" ", 1)[1] if " " in text.strip() else ""
+            if q:
+                add_recent(context, q); await send_company_list(update, context, 0, q); return
     parts_all = text.strip().split()
     if len(parts_all) >= 3:
         k = resolve_line(parts_all[0])
@@ -744,12 +850,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = search_rotation(parts[0], parts[1])
         if res:
             hit_port(f"{parts[0]}->{parts[1]}"); add_recent(context, text); await update.message.reply_text(format_rotation(res, parts[0], parts[1])); return
+    # لو رقم لوحده، جرب شركة الاول
+    q_stripped = text.strip().lstrip("/").strip()
+    if q_stripped.isdigit() and len(q_stripped) >= 6:
+        comp_res = search_company(q_stripped)
+        if comp_res:
+            add_recent(context, text)
+            if len(comp_res) == 1: await update.message.reply_text(format_company(comp_res[0])); return
+            txt = f"🏢 لقيت {len(comp_res)} شركة:\n\n"
+            for c in comp_res: txt += format_company(c) + "\n\n"
+            await update.message.reply_text(txt.strip()); return
     bare_map = {"country": "country", "countries": "country", "دولة": "country", "دول": "country", "cities": "cities", "city": "cities", "مدينة": "cities", "مدن": "cities", "currency": "currency", "currencies": "currency", "عملة": "currency", "عملات": "currency", "package": "package", "packages": "package", "packaging": "package", "عبوة": "package", "عبوات": "package", "uom": "uom", "unit": "uom", "units": "uom", "وحدة": "uom"}
     if bare in bare_map: await send_ref_list(update, context, bare_map[bare], 0, ""); return
     prefixes = [("cities ", "cities"), ("city ", "cities"), ("مدينة ", "cities"), ("country ", "country"), ("دولة ", "country"), ("currency ", "currency"), ("عملة ", "currency"), ("package ", "package"), ("عبوة ", "package"), ("packaging ", "package"), ("uom ", "uom"), ("unit ", "uom")]
     for pref, kind in prefixes:
         if low.startswith(pref) or low.startswith("/" + pref):
             q = text.strip().lstrip("/").strip().split(" ", 1)[1] if " " in text.strip() else ""; add_recent(context, q); await send_ref_list(update, context, kind, 0, q); return
+    # بحث شركة بالاسم لو فيه كلمتين او اكتر ومفيش نتيجة تانية
+    if len(q_stripped.split()) >= 2:
+        comp_res2 = search_company(q_stripped)
+        if comp_res2:
+            add_recent(context, text)
+            if len(comp_res2) == 1: await update.message.reply_text(format_company(comp_res2[0])); return
+            txt = f"🏢 لقيت {len(comp_res2)} شركة:\n\n"
+            for c in comp_res2: txt += format_company(c) + "\n\n"
+            await update.message.reply_text(txt.strip()); return
     q_single = text.strip().lstrip("/").strip()
     if len(q_single) >= 2:
         ref_results = search_all_refs(q_single)
@@ -814,6 +939,8 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("docs", list_docs))
     app.add_handler(CommandHandler("gpc", gpc_search_command))
+    app.add_handler(CommandHandler("companies", companies_command))
+    app.add_handler(CommandHandler("company", companies_command))
     app.add_handler(CommandHandler("cities", cities_command))
     app.add_handler(CommandHandler("city", cities_command))
     app.add_handler(CommandHandler("country", country_command))
@@ -827,7 +954,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_click))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, save_doc))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print(f"Bot is running... {len(BRICK_INDEX)} bricks, {len(CITY_BY_CODE)} cities, {len(COUNTRY_BY_CODE)} countries, {len(CURRENCY_BY_CODE)} currencies, {len(PACKAGE_BY_CODE)} packages, {len(UOM_BY_CODE)} uom, {len(LINE_NAMES)} lines, {len(ROTATION)} rotation, {len(SLMC_LIST)} slmc")
+    print(f"Bot is running... {len(BRICK_INDEX)} bricks, {len(CITY_BY_CODE)} cities, {len(COUNTRY_BY_CODE)} countries, {len(CURRENCY_BY_CODE)} currencies, {len(PACKAGE_BY_CODE)} packages, {len(UOM_BY_CODE)} uom, {len(LINE_NAMES)} lines, {len(ROTATION)} rotation, {len(SLMC_LIST)} slmc, {len(COMPANY_LIST)} companies")
     app.run_polling()
 if __name__ == "__main__":
     main()
