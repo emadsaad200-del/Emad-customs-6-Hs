@@ -132,7 +132,7 @@ def build_reference_index():
     except Exception as e: print(f"Ref index error: {e}")
 build_reference_index()
 
-# ===== التوكيلات =====
+# ===== التوكيلات - مع تصليح Merge =====
 SHIPPING_FILE = "ايميلات_وارقام_توكيلات.xlsx"
 LINE_CONTACTS = {}; LINE_NAMES = {}; ROTATION = []; SLMC_LIST = []
 def clean_cell(v): return "" if v is None else str(v).strip()
@@ -154,21 +154,30 @@ def build_shipping_index():
                     if key not in LINE_CONTACTS: LINE_CONTACTS[key] = []
                     LINE_CONTACTS[key].append({"line": cur_line, "name": name, "position": pos, "email": email, "number": num, "booking": booking, "final": final, "vgm": vgm, "draft": draft, "invoice": invoice, "pickup": pickup})
                 except: continue
+        # ===== تصليح Merge: POL فاضي بيكمل من اللي قبله =====
         if "SERVICE ROTATION" in wb.sheetnames:
-            ws = wb["SERVICE ROTATION"]
+            ws = wb["SERVICE ROTATION"]; last_pol = ""
             for r in ws.iter_rows(values_only=True):
                 try:
-                    if not r or not r[0] or not r[1]: continue
+                    if not r: continue
                     if str(r[0]).upper() == "POL": continue
-                    ROTATION.append({"pol": clean_cell(r[0]), "pod": clean_cell(r[1]), "line": clean_cell(r[2]), "tt": clean_cell(r[3]), "country": clean_cell(r[4])})
+                    pol = clean_cell(r[0]) or last_pol
+                    if pol: last_pol = pol
+                    pod = clean_cell(r[1])
+                    if not pol or not pod: continue
+                    ROTATION.append({"pol": pol, "pod": pod, "line": clean_cell(r[2]), "tt": clean_cell(r[3]), "country": clean_cell(r[4])})
                 except: continue
         if "SLMC" in wb.sheetnames:
-            ws = wb["SLMC"]
+            ws = wb["SLMC"]; last_pol = ""
             for r in ws.iter_rows(values_only=True):
                 try:
-                    if not r or not r[1] or not r[2]: continue
+                    if not r: continue
                     if str(r[1]).upper() == "POL": continue
-                    SLMC_LIST.append({"pol": clean_cell(r[1]), "pod": clean_cell(r[2]), "line": clean_cell(r[3]), "tt": clean_cell(r[4]), "country": clean_cell(r[5])})
+                    pol = clean_cell(r[1]) or last_pol
+                    if pol: last_pol = pol
+                    pod = clean_cell(r[2])
+                    if not pol or not pod: continue
+                    SLMC_LIST.append({"pol": pol, "pod": pod, "line": clean_cell(r[3]), "tt": clean_cell(r[4]), "country": clean_cell(r[5])})
                 except: continue
         wb.close()
         if os.path.exists(OVERRIDE_FILE):
@@ -219,8 +228,6 @@ def add_recent(context, txt):
     lst = context.user_data.get("recent", []); txt = (txt or "").strip()
     if txt and txt not in lst: lst.insert(0, txt)
     context.user_data["recent"] = lst[:5]
-
-# ===== المنيو الكامل - فيه كل حاجة =====
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚢 توكيلات", callback_data="menu_lines"), InlineKeyboardButton("📦 GPC", callback_data="menu_gpc")],
