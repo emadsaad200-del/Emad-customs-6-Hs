@@ -170,10 +170,8 @@ build_companies_index()
 def search_company(q):
     qq = (q or "").strip()
     if not qq: return []
-    # بحث برقم التسجيل او رقم الملف بالظبط
     if qq in COMPANY_BY_REG: return [COMPANY_BY_REG[qq]]
     if qq in COMPANY_BY_FILE: return [COMPANY_BY_FILE[qq]]
-    # بحث برقم جزئي
     if qq.isdigit():
         out = [c for c in COMPANY_LIST if qq in c["reg_no"] or qq in c["file_no"]]
         if out: return out[:10]
@@ -809,7 +807,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bare in ["menu", "القايمة", "القايمه", "menu_main", "القائمة"]:
         await update.message.reply_text("🏠 القايمة الرئيسية:", reply_markup=main_menu_keyboard()); return
     low = text.strip().lower()
-    # بحث شركات: شركة + اسم او رقم
     for pref in ["شركة ", "شركه ", "شركات ", "company ", "companies "]:
         if low.startswith(pref) or low.startswith("/"+pref):
             q = text.strip().lstrip("/").strip().split(" ", 1)[1] if " " in text.strip() else ""
@@ -842,6 +839,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if k_single:
         hit_line(k_single); add_recent(context, text); await update.message.reply_text(format_line_contacts(k_single), reply_markup=line_category_keyboard(k_single)); return
     if len(text.strip().split()) == 1 and len(text.strip()) >= 3:
+        # ===== FIX جديد: لو كلمة واحدة وطلعت اسم شركة، رجع الشركات الاول =====
+        comp_single = search_company(text.strip())
+        if comp_single:
+            add_recent(context, text)
+            await send_company_list(update, context, 0, text.strip())
+            return
         sug = suggest_line(text.strip())
         if sug:
             await update.message.reply_text(f"قصدك {LINE_NAMES.get(sug,sug)}؟\nاكتب: توكيل {LINE_NAMES.get(sug,sug)}"); return
@@ -850,7 +853,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = search_rotation(parts[0], parts[1])
         if res:
             hit_port(f"{parts[0]}->{parts[1]}"); add_recent(context, text); await update.message.reply_text(format_rotation(res, parts[0], parts[1])); return
-    # لو رقم لوحده، جرب شركة الاول
     q_stripped = text.strip().lstrip("/").strip()
     if q_stripped.isdigit() and len(q_stripped) >= 6:
         comp_res = search_company(q_stripped)
@@ -866,15 +868,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for pref, kind in prefixes:
         if low.startswith(pref) or low.startswith("/" + pref):
             q = text.strip().lstrip("/").strip().split(" ", 1)[1] if " " in text.strip() else ""; add_recent(context, q); await send_ref_list(update, context, kind, 0, q); return
-    # بحث شركة بالاسم لو فيه كلمتين او اكتر ومفيش نتيجة تانية
-    if len(q_stripped.split()) >= 2:
-        comp_res2 = search_company(q_stripped)
-        if comp_res2:
-            add_recent(context, text)
-            if len(comp_res2) == 1: await update.message.reply_text(format_company(comp_res2[0])); return
-            txt = f"🏢 لقيت {len(comp_res2)} شركة:\n\n"
-            for c in comp_res2: txt += format_company(c) + "\n\n"
-            await update.message.reply_text(txt.strip()); return
+    # ===== FIX جديد: بحث شركة بالاسم - كلمة واحدة او اكتر - قبل الـ refs والـ GPC =====
+    comp_by_name = search_company(q_stripped)
+    if comp_by_name:
+        add_recent(context, text)
+        await send_company_list(update, context, 0, q_stripped)
+        return
     q_single = text.strip().lstrip("/").strip()
     if len(q_single) >= 2:
         ref_results = search_all_refs(q_single)
