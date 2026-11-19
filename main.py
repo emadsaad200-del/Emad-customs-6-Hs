@@ -6,7 +6,6 @@ BOT_TOKEN=os.getenv("BOT_TOKEN"); ADMIN_ID=os.getenv("ADMIN_ID")
 USERS_FILE="users.json"; REJECT_WAIT=5*60; DOCS_FILE="docs_index.json"; STATS_FILE="hits.json"; OVERRIDE_FILE="lines_override.json"
 os.makedirs("docs",exist_ok=True)
 EXCEL_FILES=["gs1xlsx.xlsx","GPC as of May 2023 v20230605 EN.xlsx"]
-# ===== GPC =====
 BRICK_INDEX={}; BRICK_BY_CODE={}; BRICK_ATTRS={}
 def build_index():
     print("Building light index...")
@@ -38,7 +37,6 @@ def build_index():
         except Exception as e: print(f"Index error {fname}: {e}")
     print(f"Index done: {len(BRICK_INDEX)} bricks")
 build_index()
-# ===== Cities.xlsx =====
 CITIES_FILE="cities.xlsx"
 CITY_INDEX={}; CITY_BY_CODE={}; COUNTRY_INDEX={}; COUNTRY_BY_CODE={}; CURRENCY_INDEX={}; CURRENCY_BY_CODE={}; PACKAGE_INDEX={}; PACKAGE_BY_CODE={}; UOM_INDEX={}; UOM_BY_CODE={}
 def build_reference_index():
@@ -111,15 +109,33 @@ def build_reference_index():
         wb.close(); print(f"Ref indexed: Cities {len(CITY_BY_CODE)} | Country {len(COUNTRY_BY_CODE)} | Currency {len(CURRENCY_BY_CODE)} | Package {len(PACKAGE_BY_CODE)} | UOM {len(UOM_BY_CODE)}")
     except Exception as e: print(f"Ref index error: {e}")
 build_reference_index()
-# ===== الشركات =====
 COMPANIES_FILE="ارقام_تسجيل_الشركات_111111.xlsx"
 COMPANY_LIST=[]; COMPANY_BY_REG={}; COMPANY_BY_FILE={}
+COMPANY_NORM_CACHE={}
 def clean_cell(v): return "" if v is None else str(v).strip()
-def norm_ar(s):
+def norm_ar_old(s):
     if not s: return ""
     s=str(s).strip().lower()
     for ch in ["\u200e","\u200f","\u202a","\u202b","\u202c","\u202d","\u202e","\u200c","\u200d","\u0640","ـ"]: s=s.replace(ch,"")
     s=s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ة","ه").replace("ى","ي"); s=re.sub(r'\s+',' ',s); return s
+def norm_ar(s):
+    if not s: return ""
+    s=str(s).strip().lower()
+    for ch in ["\u200e","\u200f","\u202a","\u202b","\u202c","\u202d","\u202e","\u200c","\u200d","\u0640","ـ"]: s=s.replace(ch,"")
+    s=s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ٱ","ا").replace("ٲ","ا")
+    s=s.replace("ة","ه").replace("ھ","ه").replace("ۀ","ه")
+    s=s.replace("ى","ي").replace("ی","ي").replace("ئ","ي").replace("ې","ي")
+    s=s.replace("ؤ","و")
+    s=s.replace("ك","ك").replace("ڪ","ك").replace("ک","ك")
+    s=re.sub(r'[\u064B-\u0652\u0670]', '', s)
+    s=s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789"))
+    s=re.sub(r'\s+',' ',s)
+    return s.strip()
+def clean_search_words(text):
+    stop=["ال","شركه","شركة","لل","ل","شرك","وشركاه","وشريكه","وشريك","وشركاؤه"]
+    words=norm_ar(text).split()
+    out=[w for w in words if w not in stop and len(w)>=2]
+    return out if out else words
 def build_companies_index():
     if not os.path.exists(COMPANIES_FILE): print("ارقام_تسجيل_الشركات_111111.xlsx not found"); return
     try:
@@ -130,9 +146,13 @@ def build_companies_index():
                 name=clean_cell(r[0]) if len(r)>0 else ""
                 if not name or "الاسم" in name: continue
                 file_no=clean_cell(r[1]) if len(r)>1 else ""; reg_no=clean_cell(r[2]) if len(r)>2 else ""; entity=clean_cell(r[3]) if len(r)>3 else ""; activity=clean_cell(r[4]) if len(r)>4 else ""; status=clean_cell(r[5]) if len(r)>5 else ""; address=clean_cell(r[6]) if len(r)>6 else ""
-                item={"name":name,"file_no":file_no,"reg_no":reg_no,"entity":entity,"activity":activity,"status":status,"address":address}; COMPANY_LIST.append(item)
+                file_no=file_no.replace(" ","").replace("،","").replace(",","")
+                reg_no=reg_no.replace(" ","").replace("،","").replace(",","")
+                item={"name":name,"file_no":file_no,"reg_no":reg_no,"entity":entity,"activity":activity,"status":status,"address":address}
+                COMPANY_LIST.append(item)
                 if reg_no: COMPANY_BY_REG[reg_no]=item
                 if file_no: COMPANY_BY_FILE[file_no]=item
+                COMPANY_NORM_CACHE[len(COMPANY_LIST)-1]={"name":norm_ar(name),"activity":norm_ar(activity),"address":norm_ar(address),"entity":norm_ar(entity)}
             except: continue
         wb.close(); print(f"Companies indexed: {len(COMPANY_LIST)}")
     except Exception as e: print(f"Companies index error: {e}")
@@ -142,14 +162,35 @@ def search_company(q):
     if not qq: return []
     if qq in COMPANY_BY_REG: return [COMPANY_BY_REG[qq]]
     if qq in COMPANY_BY_FILE: return [COMPANY_BY_FILE[qq]]
-    if qq.isdigit():
-        out=[c for c in COMPANY_LIST if qq in c["reg_no"] or qq in c["file_no"]]
+    qq_digits=qq.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace(" ","").replace("،","").replace(",","")
+    if qq_digits.isdigit() and len(qq_digits)>=3:
+        out=[c for c in COMPANY_LIST if qq_digits in c["reg_no"] or qq_digits in c["file_no"]]
         if out: return out[:10]
-    nq=norm_ar(qq); out=[]
-    for c in COMPANY_LIST:
-        if nq in norm_ar(c["name"]): out.append(c)
+    nq=norm_ar(qq); words=clean_search_words(qq); out=[]
+    for idx,c in enumerate(COMPANY_LIST):
+        nc=COMPANY_NORM_CACHE.get(idx,{}).get("name",norm_ar(c["name"]))
+        if words and all(w in nc for w in words): out.append(c)
+        elif nq and nq in nc: out.append(c)
         if len(out)>=10: break
+    if out: return out
+    out2=[]
+    for idx,c in enumerate(COMPANY_LIST):
+        cache=COMPANY_NORM_CACHE.get(idx,{})
+        if nq and (nq in cache.get("activity","") or nq in cache.get("address","") or nq in cache.get("entity","")): out2.append(c)
+        if len(out2)>=10: break
+    if out2: return out2
+    try:
+        names_norm=[COMPANY_NORM_CACHE.get(i,{}).get("name","") for i in range(len(COMPANY_LIST))]
+        close=difflib.get_close_matches(nq,names_norm,n=10,cutoff=0.6)
+        if close:
+            out3=[]
+            for cn in close:
+                for idx,c in enumerate(COMPANY_LIST):
+                    if COMPANY_NORM_CACHE.get(idx,{}).get("name","")==cn: out3.append(c); break
+            if out3: return out3[:10]
+    except: pass
     return out
+def search_company_smart(q): return search_company(q)
 def format_company(c):
     txt=f"🏢 {c['name']}\n"
     if c["reg_no"]: txt+=f"🔢 رقم التسجيل: {c['reg_no']}\n"
@@ -162,7 +203,15 @@ def format_company(c):
 def get_filtered_companies(query=""):
     q=norm_ar(query)
     if not q: return COMPANY_LIST
-    return [c for c in COMPANY_LIST if q in norm_ar(c["name"]) or q in c["reg_no"] or q in c["file_no"]]
+    qd=query.strip().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace(" ","")
+    if qd.isdigit() and len(qd)>=3: return [c for c in COMPANY_LIST if qd in c["reg_no"] or qd in c["file_no"]]
+    words=clean_search_words(query); out=[]
+    for idx,c in enumerate(COMPANY_LIST):
+        cache=COMPANY_NORM_CACHE.get(idx,{})
+        nc=cache.get("name","")
+        if words and all(w in nc for w in words): out.append(c)
+        elif q in nc or q in cache.get("activity","") or q in cache.get("address","") or q in cache.get("entity",""): out.append(c)
+    return out
 def company_list_keyboard(page=0,query=""):
     lst=get_filtered_companies(query); per=10; start=page*per; end=start+per; total_pages=max(1,(len(lst)+per-1)//per); kb=[]
     for i in range(start,min(end,len(lst))):
@@ -184,7 +233,6 @@ async def send_company_list(update,context,page=0,query=""):
     elif update.callback_query:
         try: await update.callback_query.message.edit_text(txt,reply_markup=kb)
         except: await update.callback_query.message.reply_text(txt,reply_markup=kb)
-# ===== التعريفة الجمركية - 27 ملف - بحث مباشر بالبند / اي رقم / اسم الصنف =====
 TARIFF_LIST=[]; TARIFF_BY_CODE={}
 def norm_tariff_code(s):
     if s is None: return ""
@@ -207,7 +255,7 @@ def build_tariff_index():
         if f.lower().startswith("tarifa") and f.lower().endswith(".xlsx") and f not in files: files.append(f)
     for f in ["30285-1.xlsx","70490-2.xlsx"]:
         if os.path.exists(f) and f not in files: files.append(f)
-    if not files: print("Tariff: no files - حط tarifa_01.xlsx ... tarifa_27.xlsx جنب main.py"); return
+    if not files: print("Tariff: no files"); return
     for fname in files:
         try:
             wb=openpyxl.load_workbook(fname,read_only=True,data_only=True); ws=wb[wb.sheetnames[0]]
@@ -284,7 +332,6 @@ async def send_tariff_list(update,context,page=0,query=""):
     elif update.callback_query:
         try: await update.callback_query.message.edit_text(txt,reply_markup=kb)
         except: await update.callback_query.message.reply_text(txt,reply_markup=kb)
-# ===== التوكيلات =====
 SHIPPING_FILE="ايميلات_وارقام_توكيلات.xlsx"
 LINE_CONTACTS={}; LINE_NAMES={}; ROTATION=[]; SLMC_LIST=[]
 def build_shipping_index():
@@ -346,7 +393,6 @@ def build_shipping_index():
         print(f"Shipping indexed: Lines {len(LINE_NAMES)} | Rotation {len(ROTATION)} | SLMC {len(SLMC_LIST)}")
     except Exception as e: print(f"Shipping index error: {e}")
 build_shipping_index()
-# ===== helpers =====
 ARABIC_LINE_MAP={"ميرسك":"MAERSK","هاباج":"HAPAG","هاباق":"HAPAG","كوسكو":"COSCO","سي ام ايه":"CMA","سي ام اي":"CMA","ايفرجرين":"EVERGREEN","ايفر جرين":"EVERGREEN","ام اس سي":"MSC","سيجو":"SEAGO","سيغو":"SEAGO","زيم":"ZIM","وان هاي":"WAN HAI","وانهاي":"WAN HAI","اركاس":"ARKAS","اركس":"ARKAS","وان":"ONE","او او سي ال":"OOCL","واي ام ال":"YML","اي بي ال":"APL","بي اي ال":"PIL","بيل":"PIL","تاروس":"TARROS","تاروز":"TARROS","توركون":"TURKON","ميدكون":"MEDKON","ميسينا":"MESSINA","ساف مارين":"SAF MARINE","هامبورج سود":"HAMBURG SUD","هامبورغ سود":"HAMBURG SUD","بي ام سي":"BMC","ترانسمار":"TRANSMAR","ترانس مار":"TRANSMAR","ويك لاين":"WEC LINE","جريمالدي":"GRIMALDI","هيونداي":"HYUNDAI","هيونداى":"HYUNDAI","دلتا":"DELTA","ام جي ال":"MGL","روديمار":"RODYMAR","نايل داتش":"NILE DUTCH","ادميرال":"ADMIRAL","بورشارد":"BOARSHARD","مارين":"MARINE"}
 SHORTCUT_MAP={"م":"MAERSK","ه":"HAPAG","ك":"COSCO","س":"CMA","ا":"EVERGREEN"}
 def load_hits():
@@ -485,10 +531,10 @@ After the trial and subscription for 150 EGP, you can inquire about the customs 
 You can also search for GS1, and you can calculate the approximate customs."""
 HELP_TEXT="""❓ مساعدة / Help
 
-🧾 تعريفة مباشر - اكتب علطول: 0302.44 او 44 او خيول او ماكريل - من غير اي كلمة قبله
-🚢 توكيلات - اكتب: توكيلات او MAERSK او ميرسك او توكيل MAERSK
-🚢 خط - اكتب: Alex Izmir او EGYPT LATTAKIA او MAERSK Alex Izmir
-🏢 شركات - اكتب: شركات او شركة مصر او رقم التسجيل 202444732
+🧾 تعريفة مباشر - اكتب علطول: 0302.44 او 44 او خيول او ماكريل
+🚢 توكيلات - اكتب: توكيلات او MAERSK او ميرسك
+🚢 خط - اكتب: Alex Izmir او EGYPT LATTAKIA
+🏢 شركات - اكتب: شركات او شركة مصر او رقم التسجيل 202444732 او النشاط تجاره السيارات او العنوان اسكندريه
 📦 GPC - اكتب: /gpc Airbrushes او اسم الصنف
 🌍 Country - اكتب: Country Eg او Country Egypt
 🏙️ Cities - اكتب: Cities Cai
@@ -497,7 +543,15 @@ HELP_TEXT="""❓ مساعدة / Help
 📏 UOM - اكتب: UOM K
 📁 مستندات - اكتب: /docs او تزيل 1
 🕘 اخر بحث - اكتب: اخر
-🏠 القايمة - اكتب: /menu"""
+🏠 القايمة - اكتب: /menu
+
+🏢 البحث عن الشركات بكل الطرق:
+- بالاسم: شركة مصر / مصر لتصدير الاقطان / جملة ماركت
+- برقم التسجيل: 202444732
+- برقم الملف: 5555000041150000
+- بالنشاط: تجاره السيارات / تجاره الاخشاب
+- بالعنوان: اسكندريه / برج العرب
+- بالكيان: شركات مساهمه"""
 def load_users():
     if not os.path.exists(USERS_FILE): return {}
     try:
@@ -840,17 +894,21 @@ async def handle_message(update: Update,context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اكتب: تعديل MAERSK | الاسم | الايميل | الرقم"); return
     bare=text.strip().lstrip("/").strip().lower()
     if bare in ["اخر","recent","اخر بحث"]:
-        lst=context.user_data.get("recent",[]); await update.message.reply_text("🕘 اخر 5:\n"+"\n".join([f"• {x}" for x in lst]) if lst else "لسه مفيش بحث"); return
+        lst=context.user_data.get("recent",[])
+        await update.message.reply_text("🕘 اخر 5:\n"+"\n".join([f"• {x}" for x in lst]) if lst else "لسه مفيش بحث"); return
     if bare in ["توكيلات","توكيل","lines","line","shipping lines","خطوط","خط"]: await send_line_list(update,context,0,""); return
     if bare in ["شركات","شركه","شركة","companies","company","تسجيل","ارقام تسجيل الشركات"]: await send_company_list(update,context,0,""); return
     if bare in ["تعريفة","تعريفه","tariff","hs","التعريفة","التعريفه","التعريفة الجمركية","التعريفه الجمركيه"]: await send_tariff_list(update,context,0,""); return
     if bare in ["menu","القايمة","القايمه","menu_main","القائمة"]: await update.message.reply_text("🏠 القايمة الرئيسية:",reply_markup=main_menu_keyboard()); return
     low=text.strip().lower()
+    for pref in ["شركة ","شركه ","شركات ","company ","companies ","نشاط ","عنوان ","كيان "]:
+        if low.startswith(pref) or low.startswith("/"+pref):
+            q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""
+            if q: add_recent(context,q); await send_company_list(update,context,0,q); return
     for pref in ["تعريفة ","تعريفه ","التعريفة ","التعريفه ","tariff ","hs ","بند ","hscode ","hs code ","تعريفة:","تعريفه:"]:
         if low.startswith(pref) or low.startswith("/"+pref):
             q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""
             if q: add_recent(context,q); await send_tariff_list(update,context,0,q); return
-    # ===== بحث تعريفة مباشر - من غير اي كلمة قبله =====
     q_direct=text.strip()
     if re.match(r'^[\d\.\s]+$',q_direct):
         tres=search_tariff(q_direct)
@@ -864,10 +922,6 @@ async def handle_message(update: Update,context: ContextTypes.DEFAULT_TYPE):
             add_recent(context,text)
             if len(tres2)==1: await update.message.reply_text(format_tariff(tres2[0])); return
             await send_tariff_list(update,context,0,q_direct); return
-    for pref in ["شركة ","شركه ","شركات ","company ","companies "]:
-        if low.startswith(pref) or low.startswith("/"+pref):
-            q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""
-            if q: add_recent(context,q); await send_company_list(update,context,0,q); return
     parts_all=text.strip().split()
     if len(parts_all)>=3:
         k=resolve_line(parts_all[0])
@@ -955,16 +1009,34 @@ async def delete_user(update: Update,context: ContextTypes.DEFAULT_TYPE):
     if not context.args: await update.message.reply_text("Usage: /delete USR-1234  or  /delete <ID>"); return
     target=context.args[0]; users=load_users(); found=None
     for uid,u in list(users.items()):
-        if u.get("code")==target or str(u.get("id"))==target: found=uid; break
-    if not found: await update.message.reply_text("User not found."); return
-    del users[found]; save_users(users); await update.message.reply_text(f"Deleted user {target} ✅")
-async def stats(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    if str(update.message.from_user.id)!=str(ADMIN_ID): return
-    users=load_users(); accepted=sum(1 for u in users.values() if u.get("status")=="accepted"); pending=sum(1 for u in users.values() if u.get("status")=="pending"); rejected=sum(1 for u in users.values() if u.get("status")=="rejected")
-    await update.message.reply_text(f"Total: {len(users)}\nAccepted: {accepted}\nPending: {pending}\nRejected: {rejected}")
+        if u.get("code")==target or uid==target: found=uid; break
+    if found: del users[found]; save_users(users); await update.message.reply_text(f"Deleted {target}")
+    else: await update.message.reply_text(f"Not found {target}")
 def main():
+    if not BOT_TOKEN: print("BOT_TOKEN missing"); return
     app=ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start",start)); app.add_handler(CommandHandler("help",help_command)); app.add_handler(CommandHandler("menu",menu_command)); app.add_handler(CommandHandler("top",top_command)); app.add_handler(CommandHandler("users",list_users)); app.add_handler(CommandHandler("delete",delete_user)); app.add_handler(CommandHandler("stats",stats)); app.add_handler(CommandHandler("docs",list_docs)); app.add_handler(CommandHandler("gpc",gpc_search_command)); app.add_handler(CommandHandler("companies",companies_command)); app.add_handler(CommandHandler("company",companies_command)); app.add_handler(CommandHandler("tariff",tariff_command)); app.add_handler(CommandHandler("hs",tariff_command)); app.add_handler(CommandHandler("cities",cities_command)); app.add_handler(CommandHandler("city",cities_command)); app.add_handler(CommandHandler("country",country_command)); app.add_handler(CommandHandler("currency",currency_command)); app.add_handler(CommandHandler("package",package_command)); app.add_handler(CommandHandler("uom",uom_command)); app.add_handler(CommandHandler("lines",lines_command)); app.add_handler(CommandHandler("line",line_command)); app.add_handler(CommandHandler("rotation",rotation_command)); app.add_handler(CommandHandler("route",rotation_command)); app.add_handler(CallbackQueryHandler(button_click)); app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,save_doc)); app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
-    print(f"Bot is running... {len(BRICK_INDEX)} bricks, {len(CITY_BY_CODE)} cities, {len(COUNTRY_BY_CODE)} countries, {len(CURRENCY_BY_CODE)} currencies, {len(PACKAGE_BY_CODE)} packages, {len(UOM_BY_CODE)} uom, {len(LINE_NAMES)} lines, {len(ROTATION)} rotation, {len(SLMC_LIST)} slmc, {len(COMPANY_LIST)} companies, {len(TARIFF_LIST)} tariff")
+    app.add_handler(CommandHandler("start",start))
+    app.add_handler(CommandHandler("help",help_command))
+    app.add_handler(CommandHandler("menu",menu_command))
+    app.add_handler(CommandHandler("top",top_command))
+    app.add_handler(CommandHandler("gpc",gpc_search_command))
+    app.add_handler(CommandHandler("companies",companies_command))
+    app.add_handler(CommandHandler("company",companies_command))
+    app.add_handler(CommandHandler("tariff",tariff_command))
+    app.add_handler(CommandHandler("cities",cities_command))
+    app.add_handler(CommandHandler("country",country_command))
+    app.add_handler(CommandHandler("currency",currency_command))
+    app.add_handler(CommandHandler("package",package_command))
+    app.add_handler(CommandHandler("uom",uom_command))
+    app.add_handler(CommandHandler("lines",lines_command))
+    app.add_handler(CommandHandler("line",line_command))
+    app.add_handler(CommandHandler("rotation",rotation_command))
+    app.add_handler(CommandHandler("docs",list_docs))
+    app.add_handler(CommandHandler("users",list_users))
+    app.add_handler(CommandHandler("delete",delete_user))
+    app.add_handler(CallbackQueryHandler(button_click))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,save_doc))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
+    print("Bot running...")
     app.run_polling()
 if __name__=="__main__": main()
