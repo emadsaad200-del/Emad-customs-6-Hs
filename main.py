@@ -3,6 +3,7 @@ import openpyxl
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 BOT_TOKEN=os.getenv("BOT_TOKEN"); ADMIN_ID=os.getenv("ADMIN_ID")
+SLASH=chr(47)
 USERS_FILE="users.json"; REJECT_WAIT=5*60; DOCS_FILE="docs_index.json"; STATS_FILE="hits.json"; OVERRIDE_FILE="lines_override.json"
 os.makedirs("docs",exist_ok=True)
 EXCEL_FILES=["gs1xlsx.xlsx","GPC as of May 2023 v20230605 EN.xlsx"]
@@ -18,8 +19,7 @@ def build_index():
                 try:
                     if not r or len(r)<11: continue
                     if str(r[0]).lower().startswith("segment"): continue
-                    brick_code=str(r[9]) if r[9] is not None else ""
-                    brick_title=str(r[10]) if r[10] is not None else ""
+                    brick_code=str(r[9]) if r[9] is not None else ""; brick_title=str(r[10]) if r[10] is not None else ""
                     if not brick_title: continue
                     key=brick_title.strip().lower()
                     if key not in BRICK_INDEX:
@@ -31,21 +31,17 @@ def build_index():
                         ex=None
                         for a in BRICK_ATTRS[key]:
                             if a["attribute_code"]==attr_code: ex=a; break
-                        if not ex:
-                            ex={"attribute_code":attr_code,"attribute_title":attr_title,"values":[]}
-                            BRICK_ATTRS[key].append(ex)
+                        if not ex: ex={"attribute_code":attr_code,"attribute_title":attr_title,"values":[]}; BRICK_ATTRS[key].append(ex)
                         if val_title and val_title not in ex["values"]: ex["values"].append(val_title)
                 except: continue
-            wb.close()
-            print("Indexed "+fname+": "+str(len(BRICK_INDEX))+" bricks")
+            wb.close(); print("Indexed "+fname)
         except Exception as e: print("Index error "+fname+": "+str(e))
-    print("Index done: "+str(len(BRICK_INDEX))+" bricks")
+    print("Index done")
 build_index()
 CITIES_FILE="cities.xlsx"
 CITY_INDEX={}; CITY_BY_CODE={}; COUNTRY_INDEX={}; COUNTRY_BY_CODE={}; CURRENCY_INDEX={}; CURRENCY_BY_CODE={}; PACKAGE_INDEX={}; PACKAGE_BY_CODE={}; UOM_INDEX={}; UOM_BY_CODE={}
 def build_reference_index():
-    if not os.path.exists(CITIES_FILE):
-        print("cities.xlsx not found"); return
+    if not os.path.exists(CITIES_FILE): print("cities.xlsx not found"); return
     try:
         wb=openpyxl.load_workbook(CITIES_FILE,read_only=True,data_only=True)
         if "City List" in wb.sheetnames:
@@ -55,8 +51,7 @@ def build_reference_index():
                     if not r or len(r)<2 or not r[0] or not r[1]: continue
                     if str(r[0]).lower()=="citycode": continue
                     code=str(r[0]).strip().upper(); name=str(r[1]).strip(); country=str(r[2]).strip() if len(r)>2 and r[2] else ""
-                    CITY_BY_CODE[code]={"code":code,"name":name,"country":country}
-                    k=name.lower()
+                    CITY_BY_CODE[code]={"code":code,"name":name,"country":country}; k=name.lower()
                     if k not in CITY_INDEX: CITY_INDEX[k]=[]
                     CITY_INDEX[k].append({"code":code,"name":name,"country":country})
                 except: continue
@@ -68,8 +63,7 @@ def build_reference_index():
                     if str(r[0]).lower()=="citycode": continue
                     code=str(r[0]).strip().upper(); name=str(r[1]).strip()
                     if code in CITY_BY_CODE: continue
-                    CITY_BY_CODE[code]={"code":code,"name":name,"country":""}
-                    k=name.lower()
+                    CITY_BY_CODE[code]={"code":code,"name":name,"country":""}; k=name.lower()
                     if k not in CITY_INDEX: CITY_INDEX[k]=[]
                     CITY_INDEX[k].append({"code":code,"name":name,"country":""})
                 except: continue
@@ -79,9 +73,7 @@ def build_reference_index():
                 try:
                     if not r or len(r)<2 or not r[0] or not r[1]: continue
                     if str(r[0]).lower()=="code": continue
-                    code=str(r[0]).strip().upper(); name=str(r[1]).strip()
-                    COUNTRY_BY_CODE[code]={"code":code,"name":name}
-                    k=name.lower()
+                    code=str(r[0]).strip().upper(); name=str(r[1]).strip(); COUNTRY_BY_CODE[code]={"code":code,"name":name}; k=name.lower()
                     if k not in COUNTRY_INDEX: COUNTRY_INDEX[k]=[]
                     COUNTRY_INDEX[k].append({"code":code,"name":name})
                 except: continue
@@ -91,9 +83,7 @@ def build_reference_index():
                 try:
                     if not r or len(r)<2 or not r[0] or not r[1]: continue
                     if "currency" in str(r[0]).lower(): continue
-                    name=str(r[0]).strip(); code=str(r[1]).strip().upper()
-                    CURRENCY_BY_CODE[code]={"code":code,"name":name}
-                    k=name.lower()
+                    name=str(r[0]).strip(); code=str(r[1]).strip().upper(); CURRENCY_BY_CODE[code]={"code":code,"name":name}; k=name.lower()
                     if k not in CURRENCY_INDEX: CURRENCY_INDEX[k]=[]
                     CURRENCY_INDEX[k].append({"code":code,"name":name})
                 except: continue
@@ -103,9 +93,7 @@ def build_reference_index():
                 try:
                     if not r or len(r)<2 or not r[0] or not r[1]: continue
                     if str(r[0]).lower()=="code": continue
-                    code=str(r[0]).strip().upper(); name=str(r[1]).strip()
-                    PACKAGE_BY_CODE[code]={"code":code,"name":name}
-                    k=name.lower()
+                    code=str(r[0]).strip().upper(); name=str(r[1]).strip(); PACKAGE_BY_CODE[code]={"code":code,"name":name}; k=name.lower()
                     if k not in PACKAGE_INDEX: PACKAGE_INDEX[k]=[]
                     PACKAGE_INDEX[k].append({"code":code,"name":name})
                 except: continue
@@ -115,14 +103,11 @@ def build_reference_index():
                 try:
                     if not r or len(r)<2 or not r[0] or not r[1]: continue
                     if "uomcode" in str(r[0]).lower(): continue
-                    code=str(r[0]).strip().upper(); name=str(r[1]).strip()
-                    UOM_BY_CODE[code]={"code":code,"name":name}
-                    k=name.lower()
+                    code=str(r[0]).strip().upper(); name=str(r[1]).strip(); UOM_BY_CODE[code]={"code":code,"name":name}; k=name.lower()
                     if k not in UOM_INDEX: UOM_INDEX[k]=[]
                     UOM_INDEX[k].append({"code":code,"name":name})
                 except: continue
-        wb.close()
-        print("Ref indexed")
+        wb.close(); print("Ref indexed")
     except Exception as e: print("Ref index error: "+str(e))
 build_reference_index()
 COMPANIES_FILE="ارقام_تسجيل_الشركات_111111.xlsx"
@@ -130,31 +115,20 @@ COMPANIES_FILE_2026="ارقام_تسجيل_الشركات_2026.xlsx"
 COMPANY_LIST=[]; COMPANY_BY_REG={}; COMPANY_BY_FILE={}
 COMPANY_NORM_CACHE={}
 def clean_cell(v):
-    return "" if v is None else str(v).strip()
-def clean_invisible(s):
-    if not s: return ""
-    out=[]
-    for ch in str(s):
-        o=ord(ch)
-        if o<32: continue
-        if o==160: continue
-        if 8206<=o<=8207: continue
-        if 8234<=o<=8238: continue
-        if o==8204 or o==8205: continue
-        if o==1600: continue
-        out.append(ch)
-    return "".join(out)
+    if v is None: return ""
+    return str(v).strip()
 def norm_ar(s):
     if not s: return ""
-    s=clean_invisible(str(s)).strip().lower()
-    rep={"أ":"ا","إ":"ا","آ":"ا","ة":"ه","ى":"ي","ئ":"ي","ؤ":"و"}
-    for k,v in rep.items(): s=s.replace(k,v)
-    s=s.replace("ھ","ه")
-    s=s.replace("ی","ي")
-    s=s.replace("ڪ","ك")
-    s=s.replace("ک","ك")
+    s=str(s).strip().lower()
+    for ch in ["\u200e","\u200f","\u202a","\u202b","\u202c","\u202d","\u202e","\u200c","\u200d","\u0640"]:
+        s=s.replace(ch,"")
+    s=s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ٱ","ا")
+    s=s.replace("ة","ه").replace("ھ","ه").replace("ۀ","ه")
+    s=s.replace("ى","ي").replace("ی","ي").replace("ئ","ي").replace("ې","ي")
+    s=s.replace("ؤ","و").replace("ڪ","ك").replace("ک","ك")
+    s=re.sub(r'[\u064B-\u0652\u0670]', '', s)
     s=s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789"))
-    s=re.sub(r"\s+"," ",s)
+    s=re.sub(r'\s+',' ',s)
     return s.strip()
 def clean_search_words(text):
     stop=["ال","شركه","شركة","لل","ل","شرك","وشركاه","وشريكه","وشريك","وشركاؤه"]
@@ -162,11 +136,10 @@ def clean_search_words(text):
     out=[w for w in words if w not in stop and len(w)>=2]
     return out if out else words
 def _add_company(name, file_no, reg_no, entity, activity, status, address):
-    name=clean_cell(name)
-    reg_no=clean_cell(reg_no).replace(" ","").replace(",","")
+    name=clean_cell(name); reg_no=clean_cell(reg_no).replace(" ","").replace("،","").replace(",","")
     if not name or not reg_no: return
     if reg_no in COMPANY_BY_REG: return
-    file_no=clean_cell(file_no).replace(" ","").replace(",","")
+    file_no=clean_cell(file_no).replace(" ","").replace("،","").replace(",","")
     item={"name":name,"file_no":file_no,"reg_no":reg_no,"entity":clean_cell(entity),"activity":clean_cell(activity),"status":clean_cell(status),"address":clean_cell(address)}
     COMPANY_LIST.append(item)
     COMPANY_BY_REG[reg_no]=item
@@ -175,8 +148,7 @@ def _add_company(name, file_no, reg_no, entity, activity, status, address):
 def build_companies_index():
     if os.path.exists(COMPANIES_FILE):
         try:
-            wb=openpyxl.load_workbook(COMPANIES_FILE,read_only=True,data_only=True)
-            ws=wb[wb.sheetnames[0]]
+            wb=openpyxl.load_workbook(COMPANIES_FILE,read_only=True,data_only=True); ws=wb[wb.sheetnames[0]]
             for r in ws.iter_rows(values_only=True):
                 try:
                     if not r: continue
@@ -184,8 +156,7 @@ def build_companies_index():
                     if not name or "الاسم" in name: continue
                     _add_company(name, clean_cell(r[1]) if len(r)>1 else "", clean_cell(r[2]) if len(r)>2 else "", clean_cell(r[3]) if len(r)>3 else "", clean_cell(r[4]) if len(r)>4 else "", clean_cell(r[5]) if len(r)>5 else "", clean_cell(r[6]) if len(r)>6 else "")
                 except: continue
-            wb.close()
-            print("Companies OLD: "+str(len(COMPANY_LIST)))
+            wb.close(); print("Companies OLD: "+str(len(COMPANY_LIST)))
         except Exception as e: print("Companies OLD error: "+str(e))
     if not os.path.exists(COMPANIES_FILE_2026):
         print("2026 file not found"); return
@@ -197,7 +168,9 @@ def build_companies_index():
                 try:
                     if not r or not r[0] or not r[1]: continue
                     if str(r[0]).lower()=="registrationnumber": continue
-                    _add_company(r[1], "", r[0], "خاص - "+clean_cell(r[3]), "", clean_cell(r[5]), "تاريخ التسجيل: "+clean_cell(r[4]))
+                    ent="خاص - "+clean_cell(r[3])
+                    addr="تاريخ التسجيل: "+clean_cell(r[4])
+                    _add_company(r[1], "", r[0], ent, "", clean_cell(r[5]), addr)
                 except: continue
         if "حكومي" in wb.sheetnames:
             ws=wb["حكومي"]
@@ -216,8 +189,7 @@ def build_companies_index():
                     if str(r[1]).lower()=="رقم التسجيل": continue
                     _add_company(r[2], "", r[1], "فرع اجنبي", "", "", clean_cell(r[3]))
                 except: continue
-        wb.close()
-        print("Companies TOTAL: "+str(len(COMPANY_LIST)))
+        wb.close(); print("Companies TOTAL: "+str(len(COMPANY_LIST)))
     except Exception as e: print("Companies 2026 error: "+str(e))
 build_companies_index()
 def search_company(q):
@@ -225,7 +197,7 @@ def search_company(q):
     if not qq: return []
     if qq in COMPANY_BY_REG: return [COMPANY_BY_REG[qq]]
     if qq in COMPANY_BY_FILE: return [COMPANY_BY_FILE[qq]]
-    qq_digits=qq.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace(" ","").replace(",","")
+    qq_digits=qq.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace(" ","").replace("،","").replace(",","")
     if qq_digits.isdigit() and len(qq_digits)>=3:
         out=[c for c in COMPANY_LIST if qq_digits in c["reg_no"] or qq_digits in c["file_no"]]
         if out: return out[:10]
@@ -262,35 +234,69 @@ def format_company(c):
     if c["status"]: txt+="📄 حاله الملف: "+c["status"]+"\n"
     if c["address"]: txt+="📍 العنوان: "+c["address"]+"\n"
     return txt.strip()
-def get_filtered_companies(query=""):
+def filter_by_cat(lst, cat):
+    if not cat or cat=="all": return lst
+    out=[]
+    for c in lst:
+        ent=c.get("entity","")
+        if cat=="private":
+            if "حكومي" not in ent and "فرع اجنبي" not in ent: out.append(c)
+        elif cat=="gov":
+            if "حكومي" in ent: out.append(c)
+        elif cat=="foreign":
+            if "فرع اجنبي" in ent: out.append(c)
+    return out
+def get_filtered_companies(query="", cat="all"):
+    base=filter_by_cat(COMPANY_LIST, cat)
     q=norm_ar(query)
-    if not q: return COMPANY_LIST
+    if not q: return base
     qd=query.strip().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace(" ","")
-    if qd.isdigit() and len(qd)>=3: return [c for c in COMPANY_LIST if qd in c["reg_no"] or qd in c["file_no"]]
+    if qd.isdigit() and len(qd)>=3: return [c for c in base if qd in c["reg_no"] or qd in c["file_no"]]
     words=clean_search_words(query); out=[]
-    for idx,c in enumerate(COMPANY_LIST):
-        cache=COMPANY_NORM_CACHE.get(idx,{})
+    for c in base:
+        idx=COMPANY_LIST.index(c) if c in COMPANY_LIST else -1
+        cache=COMPANY_NORM_CACHE.get(idx,{}) if idx>=0 else {"name":norm_ar(c["name"]),"activity":norm_ar(c["activity"]),"address":norm_ar(c["address"]),"entity":norm_ar(c["entity"])}
         nc=cache.get("name","")
         if words and all(w in nc for w in words): out.append(c)
         elif q in nc or q in cache.get("activity","") or q in cache.get("address","") or q in cache.get("entity",""): out.append(c)
     return out
-def company_list_keyboard(page=0,query=""):
-    lst=get_filtered_companies(query); per=10; start=page*per; end=start+per; total_pages=max(1,(len(lst)+per-1)//per); kb=[]
+def company_cat_title(cat):
+    if cat=="private": return "الشركات الخاصة"
+    if cat=="gov": return "الشركات الحكومية"
+    if cat=="foreign": return "الشركات الاجنبية"
+    return "كل الشركات"
+def company_list_keyboard(page=0, query="", cat="all"):
+    lst=get_filtered_companies(query, cat); per=10; start=page*per; end=start+per; total_pages=max(1,(len(lst)+per-1)//per); kb=[]
     for i in range(start,min(end,len(lst))):
         c=lst[i]; kb.append([InlineKeyboardButton(c["name"][:50]+" - "+c["reg_no"],callback_data="compsel_"+str(i))])
     nav=[]
     if page>0: nav.append(InlineKeyboardButton("⬅️ السابق",callback_data="comppage_"+str(page-1)))
     if page<total_pages-1: nav.append(InlineKeyboardButton("التالي ➡️",callback_data="comppage_"+str(page+1)))
     if nav: kb.append(nav)
+    kb.append([InlineKeyboardButton("🏢 الشركات",callback_data="menu_companies")])
     kb.append([InlineKeyboardButton("🏠 القايمة الرئيسية",callback_data="menu_main")])
     title="بحث: "+query+" - " if query else ""
-    return InlineKeyboardMarkup(kb),title+"اختار الشركة - صفحة "+str(page+1)+" من "+str(total_pages)+" - العدد "+str(len(lst))
-async def send_company_list(update,context,page=0,query=""):
+    return InlineKeyboardMarkup(kb),title+company_cat_title(cat)+" - اختار الشركة - صفحة "+str(page+1)+" من "+str(total_pages)+" - العدد "+str(len(lst))
+def companies_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏢 الشركات الخاصة",callback_data="compcat_private")],
+        [InlineKeyboardButton("🏛️ الشركات الحكومية",callback_data="compcat_gov")],
+        [InlineKeyboardButton("🌍 الشركات الاجنبية",callback_data="compcat_foreign")],
+        [InlineKeyboardButton("🏠 القايمة الرئيسية",callback_data="menu_main")],
+    ])
+async def send_companies_menu(update, context):
+    kb=companies_menu_keyboard()
+    txt="🏢 ارقام تسجيل الشركات - اختار النوع:\n\n🏢 الشركات الخاصة - 42 الف شركة + القديم\n🏛️ الشركات الحكومية - 5 الاف جهة\n🌍 الشركات الاجنبية - فروع اجنبية"
+    if update.message: await update.message.reply_text(txt,reply_markup=kb)
+    elif update.callback_query:
+        try: await update.callback_query.message.edit_text(txt,reply_markup=kb)
+        except: await update.callback_query.message.reply_text(txt,reply_markup=kb)
+async def send_company_list(update,context,page=0,query="",cat="all"):
     uid=None
     if update.message: uid=update.message.from_user.id
     elif update.callback_query: uid=update.callback_query.from_user.id
-    if uid is not None: context.bot_data["comp_filter_"+str(uid)]={"query":query}
-    kb,txt=company_list_keyboard(page,query)
+    if uid is not None: context.bot_data["comp_filter_"+str(uid)]={"query":query,"cat":cat}
+    kb,txt=company_list_keyboard(page,query,cat)
     if update.message: await update.message.reply_text(txt,reply_markup=kb)
     elif update.callback_query:
         try: await update.callback_query.message.edit_text(txt,reply_markup=kb)
@@ -298,14 +304,14 @@ async def send_company_list(update,context,page=0,query=""):
 TARIFF_LIST=[]; TARIFF_BY_CODE={}
 def norm_tariff_code(s):
     if s is None: return ""
-    s=str(s).strip().replace(" ","").replace(",","")
-    if re.match(r"^\d{6}$",s): s=s[:4]+"."+s[4:]
-    if re.match(r"^\d{8}$",s): s=s[:4]+"."+s[4:6]+"."+s[6:]
+    s=str(s).strip().replace(" ","").replace("،","").replace(",","")
+    if re.match(r'^\d{6}$',s): s=s[:4]+"."+s[4:]
+    if re.match(r'^\d{8}$',s): s=s[:4]+"."+s[4:6]+"."+s[6:]
     return s
 def clean_tariff_tax(v):
     if v is None: return ""
     s=str(v).strip()
-    if s in ["","-","None"]: return ""
+    if s in ["","-","—","–","None"]: return ""
     if s in ["معفاه","معفاة"]: return "معفاه"
     return s.replace("%","").strip()+"%" if s.replace("%","").strip() else ""
 def build_tariff_index():
@@ -317,8 +323,7 @@ def build_tariff_index():
         if f.lower().startswith("tarifa") and f.lower().endswith(".xlsx") and f not in files: files.append(f)
     for f in ["30285-1.xlsx","70490-2.xlsx"]:
         if os.path.exists(f) and f not in files: files.append(f)
-    if not files:
-        print("Tariff: no files"); return
+    if not files: print("Tariff: no files"); return
     for fname in files:
         try:
             wb=openpyxl.load_workbook(fname,read_only=True,data_only=True); ws=wb[wb.sheetnames[0]]
@@ -332,7 +337,7 @@ def build_tariff_index():
                     elif len(r)>=3 and r[0] is not None:
                         code=norm_tariff_code(r[0]); desc=clean_cell(r[1]); tax=clean_tariff_tax(r[2]); chapter=code.split(".")[0] if "." in code else code[:2]; main_band=code
                     else: continue
-                    if not code or code in ["-"]: continue
+                    if not code or code in ["—","-","–"]: continue
                     if not desc: continue
                     item={"code":code,"desc":desc,"tax":tax,"chapter":chapter,"main_band":main_band,"file":fname}
                     if code in TARIFF_BY_CODE:
@@ -340,8 +345,7 @@ def build_tariff_index():
                         continue
                     TARIFF_BY_CODE[code]=item; TARIFF_LIST.append(item)
                 except: continue
-            wb.close()
-            print("Tariff indexed "+fname+": total "+str(len(TARIFF_LIST)))
+            wb.close(); print("Tariff indexed "+fname)
         except Exception as e: print("Tariff index error "+fname+": "+str(e))
     print("Tariff done: "+str(len(TARIFF_LIST)))
 build_tariff_index()
@@ -350,301 +354,6 @@ def search_tariff(q):
     if not qq: return []
     code_q=norm_tariff_code(qq)
     if code_q in TARIFF_BY_CODE: return [TARIFF_BY_CODE[code_q]]
-    q_digits=re.sub(r"\D","",qq)
+    q_digits=re.sub(r'\D','',qq)
     if q_digits and len(q_digits)>=2:
-        out=[t for t in TARIFF_LIST if q_digits in re.sub(r"\D","",t["code"])]
-        if out: return out[:10]
-    nq=norm_ar(qq)
-    if len(nq)<2: return []
-    out=[]
-    for t in TARIFF_LIST:
-        if nq in norm_ar(t["desc"]):
-            out.append(t)
-            if len(out)>=10: break
-    return out
-def format_tariff(t):
-    txt="🧾 "+t["desc"]+"\n🔢 رمز النظام المنسق / البند: "+t["code"]+"\n"
-    if t.get("chapter"): txt+="📂 الفصل: "+t["chapter"]+"\n"
-    if t.get("main_band") and t["main_band"]!=t["code"]: txt+="📁 البند الرئيسي: "+t["main_band"]+"\n"
-    txt+="💰 فئة الضريبة: "+(t["tax"] if t.get("tax") else "- (بند رئيسي / عنوان)")+"\n"
-    return txt.strip()
-def get_filtered_tariff(query=""):
-    q=norm_ar(query); q_digits=re.sub(r"\D","",query or "")
-    if not q: return TARIFF_LIST
-    out=[]
-    for t in TARIFF_LIST:
-        if q in norm_ar(t["desc"]) or (q_digits and len(q_digits)>=2 and q_digits in re.sub(r"\D","",t["code"])): out.append(t)
-    return out
-def tariff_list_keyboard(page=0,query=""):
-    lst=get_filtered_tariff(query); per=10; start=page*per; end=start+per; total_pages=max(1,(len(lst)+per-1)//per); kb=[]
-    for i in range(start,min(end,len(lst))):
-        t=lst[i]; kb.append([InlineKeyboardButton(t["code"]+" - "+t["desc"][:45],callback_data="tarifsel_"+str(i))])
-    nav=[]
-    if page>0: nav.append(InlineKeyboardButton("⬅️ السابق",callback_data="tarifpage_"+str(page-1)))
-    if page<total_pages-1: nav.append(InlineKeyboardButton("التالي ➡️",callback_data="tarifpage_"+str(page+1)))
-    if nav: kb.append(nav)
-    kb.append([InlineKeyboardButton("🏠 القايمة الرئيسية",callback_data="menu_main")])
-    title="بحث: "+query+" - " if query else ""
-    return InlineKeyboardMarkup(kb),title+"اختار البند - صفحة "+str(page+1)+" من "+str(total_pages)+" - العدد "+str(len(lst))
-async def send_tariff_list(update,context,page=0,query=""):
-    uid=None
-    if update.message: uid=update.message.from_user.id
-    elif update.callback_query: uid=update.callback_query.from_user.id
-    if uid is not None: context.bot_data["tariff_filter_"+str(uid)]={"query":query}
-    kb,txt=tariff_list_keyboard(page,query)
-    if update.message: await update.message.reply_text(txt,reply_markup=kb)
-    elif update.callback_query:
-        try: await update.callback_query.message.edit_text(txt,reply_markup=kb)
-        except: await update.callback_query.message.reply_text(txt,reply_markup=kb)
-SHIPPING_FILE="ايميلات_وارقام_توكيلات.xlsx"
-LINE_CONTACTS={}; LINE_NAMES={}; ROTATION=[]; SLMC_LIST=[]
-def build_shipping_index():
-    if not os.path.exists(SHIPPING_FILE):
-        print("shipping file not found"); return
-    try:
-        wb=openpyxl.load_workbook(SHIPPING_FILE,read_only=True,data_only=True)
-        if "EMAILS" in wb.sheetnames:
-            ws=wb["EMAILS"]; rows=list(ws.iter_rows(values_only=True)); cur_line=""
-            for r in rows[2:]:
-                try:
-                    if not r: continue
-                    if r[0]: cur_line=str(r[0]).split("\n")[0].strip()
-                    if not cur_line: continue
-                    key=cur_line.upper()
-                    if key not in LINE_NAMES: LINE_NAMES[key]=cur_line
-                    name=clean_cell(r[1]) if len(r)>1 else ""; pos=clean_cell(r[2]) if len(r)>2 else ""; email=clean_cell(r[3]) if len(r)>3 else ""; num=clean_cell(r[4]) if len(r)>4 else ""; booking=clean_cell(r[5]) if len(r)>5 else ""; final=clean_cell(r[6]) if len(r)>6 else ""; vgm=clean_cell(r[7]) if len(r)>7 else ""; draft=clean_cell(r[8]) if len(r)>8 else ""; invoice=clean_cell(r[9]) if len(r)>9 else ""; pickup=clean_cell(r[10]) if len(r)>10 else ""
-                    if not any([name,pos,email,num,booking,final,vgm,draft,invoice,pickup]): continue
-                    if key not in LINE_CONTACTS: LINE_CONTACTS[key]=[]
-                    LINE_CONTACTS[key].append({"line":cur_line,"name":name,"position":pos,"email":email,"number":num,"booking":booking,"final":final,"vgm":vgm,"draft":draft,"invoice":invoice,"pickup":pickup})
-                except: continue
-        if "SERVICE ROTATION" in wb.sheetnames:
-            ws=wb["SERVICE ROTATION"]; last_pol=""
-            for r in ws.iter_rows(values_only=True):
-                try:
-                    if not r: continue
-                    if str(r[0]).upper()=="POL": continue
-                    pol=clean_cell(r[0]) or last_pol
-                    if pol: last_pol=pol
-                    pod=clean_cell(r[1])
-                    if not pol or not pod: continue
-                    ROTATION.append({"pol":pol,"pod":pod,"line":clean_cell(r[2]),"tt":clean_cell(r[3]),"country":clean_cell(r[4])})
-                except: continue
-        if "SLMC" in wb.sheetnames:
-            ws=wb["SLMC"]; last_pol=""
-            for r in ws.iter_rows(values_only=True):
-                try:
-                    if not r: continue
-                    vals=[clean_cell(x) for x in r]
-                    if not any(vals): continue
-                    if "POL" in [v.upper() for v in vals]: continue
-                    pol=""; pod=""; line=""; tt=""; country=""
-                    if len(vals)>=4 and vals[1] and vals[2]: pol=vals[1]; pod=vals[2]; line=vals[3]; tt=vals[4] if len(vals)>4 else ""; country=vals[5] if len(vals)>5 else ""
-                    elif len(vals)>=3 and vals[0] and vals[1]: pol=vals[0]; pod=vals[1]; line=vals[2]; tt=vals[3] if len(vals)>3 else ""; country=vals[4] if len(vals)>4 else ""
-                    elif len(vals)>=3 and vals[2]: pol=last_pol; pod=vals[2]; line=vals[3] if len(vals)>3 else ""; tt=vals[4] if len(vals)>4 else ""; country=vals[5] if len(vals)>5 else ""
-                    elif len(vals)>=2 and vals[1]: pol=last_pol; pod=vals[1]; line=vals[2] if len(vals)>2 else ""
-                    if pol: last_pol=pol
-                    if not pol or not pod: continue
-                    SLMC_LIST.append({"pol":pol,"pod":pod,"line":line,"tt":tt,"country":country})
-                except: continue
-        wb.close()
-        if os.path.exists(OVERRIDE_FILE):
-            try:
-                with open(OVERRIDE_FILE,"r",encoding="utf-8") as f: ov=json.load(f)
-                for k,lst in ov.items():
-                    if k not in LINE_NAMES: LINE_NAMES[k]=k
-                    if k not in LINE_CONTACTS: LINE_CONTACTS[k]=[]
-                    LINE_CONTACTS[k].extend(lst)
-            except: pass
-        print("Shipping indexed")
-    except Exception as e: print("Shipping index error: "+str(e))
-build_shipping_index()
-ARABIC_LINE_MAP={"ميرسك":"MAERSK","هاباج":"HAPAG","هاباق":"HAPAG","كوسكو":"COSCO","سي ام ايه":"CMA","ايفرجرين":"EVERGREEN","ام اس سي":"MSC","سيجو":"SEAGO","زيم":"ZIM","وان هاي":"WAN HAI","اركاس":"ARKAS","وان":"ONE","او او سي ال":"OOCL","واي ام ال":"YML","بي اي ال":"PIL","تاروس":"TARROS","توركون":"TURKON","ميدكون":"MEDKON","ميسينا":"MESSINA","هامبورج سود":"HAMBURG SUD","ترانسمار":"TRANSMAR","جريمالدي":"GRIMALDI","هيونداي":"HYUNDAI","دلتا":"DELTA","ام جي ال":"MGL","ادميرال":"ADMIRAL"}
-SHORTCUT_MAP={"م":"MAERSK","ه":"HAPAG","ك":"COSCO","س":"CMA","ا":"EVERGREEN"}
-def load_hits():
-    if not os.path.exists(STATS_FILE): return {"lines":{},"ports":{}}
-    try:
-        with open(STATS_FILE,"r",encoding="utf-8") as f: return json.load(f)
-    except: return {"lines":{},"ports":{}}
-def save_hits(h):
-    try:
-        with open(STATS_FILE,"w",encoding="utf-8") as f: json.dump(h,f,ensure_ascii=False,indent=2)
-    except: pass
-def hit_line(line):
-    h=load_hits(); h["lines"][line]=h["lines"].get(line,0)+1; save_hits(h)
-def hit_port(port):
-    h=load_hits(); h["ports"][port]=h["ports"].get(port,0)+1; save_hits(h)
-def resolve_line(q):
-    qq=(q or "").strip()
-    if not qq: return None
-    if qq.upper() in LINE_CONTACTS: return qq.upper()
-    if qq.lower() in ARABIC_LINE_MAP: return ARABIC_LINE_MAP[qq.lower()]
-    if qq.strip() in SHORTCUT_MAP: return SHORTCUT_MAP[qq.strip()]
-    ql=qq.lower()
-    for k in LINE_NAMES:
-        if ql in k.lower() or ql in LINE_NAMES[k].lower(): return k
-    return None
-def suggest_line(q):
-    m=difflib.get_close_matches((q or "").strip().upper(),list(LINE_NAMES.keys()),n=1,cutoff=0.55)
-    if m: return m[0]
-    m2=difflib.get_close_matches((q or "").strip().lower(),list(ARABIC_LINE_MAP.keys()),n=1,cutoff=0.55)
-    if m2: return ARABIC_LINE_MAP[m2[0]]
-    return None
-def add_recent(context,txt):
-    lst=context.user_data.get("recent",[]); txt=(txt or "").strip()
-    if txt and txt not in lst: lst.insert(0,txt)
-    context.user_data["recent"]=lst[:5]
-def main_menu_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚢 توكيلات",callback_data="menu_lines"),InlineKeyboardButton("📦 GPC",callback_data="menu_gpc")],
-        [InlineKeyboardButton("🧾 التعريفة الجمركية",callback_data="menu_tariff"),InlineKeyboardButton("📁 المستندات / تزيل",callback_data="menu_docs")],
-        [InlineKeyboardButton("🚢 Rotation",callback_data="menu_rotation"),InlineKeyboardButton("🏢 ارقام تسجيل الشركات",callback_data="menu_companies")],
-        [InlineKeyboardButton("🌍 Country",callback_data="menu_country"),InlineKeyboardButton("🏙️ Cities",callback_data="menu_cities")],
-        [InlineKeyboardButton("💵 Currency",callback_data="menu_currency"),InlineKeyboardButton("📦 Package",callback_data="menu_package")],
-        [InlineKeyboardButton("📏 UOM",callback_data="menu_uom"),InlineKeyboardButton("🕘 اخر بحث",callback_data="menu_recent")],
-        [InlineKeyboardButton("❓ مساعدة / Help",callback_data="menu_help")],
-    ])
-def line_category_keyboard(line_key):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📘 Booking",callback_data="linecat_"+line_key+"_BOOKING"),InlineKeyboardButton("🧾 Invoice",callback_data="linecat_"+line_key+"_INVOICE")],
-        [InlineKeyboardButton("📧 كل الايميلات",callback_data="linecat_"+line_key+"_ALL"),InlineKeyboardButton("📞 كل الارقام",callback_data="linecat_"+line_key+"_PHONE")],
-        [InlineKeyboardButton("🏠 القايمة الرئيسية",callback_data="menu_main")],
-    ])
-def format_line_contacts(line_key,cat="ALL"):
-    contacts=LINE_CONTACTS.get(line_key,[]); display=LINE_NAMES.get(line_key,line_key)
-    if not contacts: return "❌ ملقيتش توكيل اسمه: "+display
-    txt="🚢 "+display+"\n"
-    if cat=="BOOKING":
-        txt+="📘 Booking:\n\n"; c=0
-        for x in contacts:
-            if x["booking"] or x["email"]:
-                txt+="• "+(x["name"] or x["position"] or "")+" - "+(x["email"] or "")+" "+(x["number"] or "")+"\nBooking: "+x["booking"]+"\n\n"; c+=1
-        if c==0: txt+="مفيش Booking مسجل\n"
-        return txt.strip()
-    if cat=="INVOICE":
-        txt+="🧾 Invoice:\n\n"
-        for x in contacts:
-            if x["invoice"]: txt+="• "+(x["name"] or x["position"] or "")+" - "+x["email"]+"\nInvoice: "+x["invoice"]+"\n\n"
-        return txt.strip() or ("مفيش Invoice لـ "+display)
-    if cat=="PHONE":
-        txt+="📞 الارقام:\n\n"
-        for x in contacts:
-            if x["number"]: txt+="• "+(x["name"] or x["position"] or "")+": "+x["number"]+"\n"
-        return txt.strip()
-    txt+="📞 عدد جهات الاتصال: "+str(len(contacts))+"\n\n"
-    for c in contacts[:12]:
-        if c["name"]: txt+="👤 "+c["name"]+"\n"
-        if c["position"]: txt+="💼 "+c["position"]+"\n"
-        if c["email"]: txt+="📧 "+c["email"]+"\n"
-        if c["number"]: txt+="📞 "+c["number"]+"\n"
-        if c["booking"]: txt+="📘 Booking: "+c["booking"]+"\n"
-        if c["invoice"]: txt+="🧾 Invoice: "+c["invoice"]+"\n"
-        txt+="\n"
-    if len(contacts)>12: txt+="... و "+str(len(contacts)-12)+" تانيين\n"
-    return txt.strip()
-def copy_keyboard(line_key):
-    contacts=LINE_CONTACTS.get(line_key,[]); kb=[]
-    for i,c in enumerate(contacts[:5]):
-        if c["email"]: kb.append([InlineKeyboardButton("📋 نسخ "+c["email"][:30],callback_data="copy_"+line_key+"_"+str(i))])
-    kb.append([InlineKeyboardButton("🏠 القايمة",callback_data="menu_main")]); return InlineKeyboardMarkup(kb)
-def search_rotation(pol,pod):
-    pol_l=pol.lower().strip(); pod_l=pod.lower().strip(); out=[]
-    for r in ROTATION:
-        if pol_l in r["pol"].lower() and pod_l in r["pod"].lower(): out.append(r)
-    for r in SLMC_LIST:
-        if pol_l in r["pol"].lower() and pod_l in r["pod"].lower():
-            if r not in out: out.append(r)
-    return out[:10]
-def format_rotation(results,pol,pod):
-    if not results: return "❌ ملقيتش خط من "+pol+" لـ "+pod
-    txt="🚢 من "+pol+" لـ "+pod+" - لقيت "+str(len(results))+":\n\n"
-    for r in results:
-        tt=" - T.T: "+r["tt"] if r["tt"] else ""
-        txt+="• "+r["line"]+" | "+r["pol"]+" -> "+r["pod"]+tt+" | "+r["country"]+"\n"
-    return txt
-def get_filtered_lines(query=""):
-    lst=sorted(LINE_NAMES.keys(),key=lambda x: LINE_NAMES[x]); q=(query or "").strip().lower()
-    if not q: return lst
-    return [k for k in lst if q in LINE_NAMES[k].lower() or q in k.lower()]
-def line_list_keyboard(page=0,query=""):
-    lst=get_filtered_lines(query); per=10; start=page*per; end=start+per; total_pages=max(1,(len(lst)+per-1)//per); kb=[]
-    for i in range(start,min(end,len(lst))):
-        k=lst[i]; kb.append([InlineKeyboardButton(LINE_NAMES[k][:55],callback_data="linesel_"+str(i))])
-    nav=[]
-    if page>0: nav.append(InlineKeyboardButton("⬅️ السابق",callback_data="linepage_"+str(page-1)))
-    if page<total_pages-1: nav.append(InlineKeyboardButton("التالي ➡️",callback_data="linepage_"+str(page+1)))
-    if nav: kb.append(nav)
-    kb.append([InlineKeyboardButton("🏠 القايمة الرئيسية",callback_data="menu_main")])
-    title="بحث: "+query+" - " if query else ""
-    return InlineKeyboardMarkup(kb),title+"اختار التوكيل - صفحة "+str(page+1)+" من "+str(total_pages)+" - العدد "+str(len(lst))
-async def send_line_list(update,context,page=0,query=""):
-    uid=None
-    if update.message: uid=update.message.from_user.id
-    elif update.callback_query: uid=update.callback_query.from_user.id
-    if uid is not None: context.bot_data["line_filter_"+str(uid)]={"query":query}
-    kb,txt=line_list_keyboard(page,query)
-    if update.message: await update.message.reply_text(txt,reply_markup=kb)
-    elif update.callback_query:
-        try: await update.callback_query.message.edit_text(txt,reply_markup=kb)
-        except: await update.callback_query.message.reply_text(txt,reply_markup=kb)
-def load_docs():
-    if not os.path.exists(DOCS_FILE): return []
-    try:
-        with open(DOCS_FILE,"r",encoding="utf-8") as f: return json.load(f)
-    except: return []
-def save_docs(docs):
-    with open(DOCS_FILE,"w",encoding="utf-8") as f: json.dump(docs,f,ensure_ascii=False,indent=2)
-WELCOME_MESSAGE="Welcome to Captain Emad Customs Bot. After the trial and subscription for 150 EGP, you can inquire about the customs item by code or by item name in Arabic or English. You can also search for GS1, and you can calculate the approximate customs."
-HELP_TEXT="مساعدة / Help - تعريفة مباشر: اكتب 0302.44 او 44 او خيول - توكيلات: اكتب توكيلات او MAERSK او ميرسك - خط: اكتب Alex Izmir - شركات: اكتب شركات او رقم التسجيل 202444732 - GPC: اكتب /gpc Airbrushes - Country: Country Eg - Cities: Cities Cai - Currency: Currency US - Package: Package B - UOM: UOM K - مستندات: /docs او تزيل 1 - اخر بحث: اخر - القايمة: /menu"
-def load_users():
-    if not os.path.exists(USERS_FILE): return {}
-    try:
-        with open(USERS_FILE,"r",encoding="utf-8") as f: return json.load(f)
-    except: return {}
-def save_users(users):
-    with open(USERS_FILE,"w",encoding="utf-8") as f: json.dump(users,f,ensure_ascii=False,indent=2)
-def generate_code(users):
-    while True:
-        code="USR-"+"".join(random.choices(string.digits,k=4))
-        if all(u.get("code")!=code for u in users.values()): return code
-def clean_text(text):
-    if not text: return ""
-    text=clean_invisible(text)
-    arabic_digits="٠١٢٣٤٥٦٧٨٩"
-    for i,d in enumerate(arabic_digits): text=text.replace(d,str(i))
-    text=text.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ة","ه")
-    return text.strip()
-def is_download_request(text):
-    t=clean_text(text); return bool(re.search(r"(تزيل|تنزيل|تحميل|download|نزل)",t))
-def extract_number(text):
-    t=clean_text(text); m=re.search(r"(\d+)",t); return int(m.group(1)) if m else None
-def normalize(text): return re.sub(r"\s+"," ",(text or "").strip().lower())
-def search_gpc_fast(query):
-    q=normalize(query)
-    if not q: return None,None
-    q_digits=re.sub(r"\D","",q)
-    if q_digits and q_digits in BRICK_BY_CODE: return BRICK_INDEX[BRICK_BY_CODE[q_digits]],None
-    if q in BRICK_INDEX: return BRICK_INDEX[q],None
-    matches=[BRICK_INDEX[k] for k in BRICK_INDEX.keys() if q in k]
-    if len(matches)==1: return matches[0],None
-    if len(matches)>1: return ("multiple",matches[:10]),None
-    return None,None
-def get_attrs_for_brick(brick_title): return BRICK_ATTRS.get(brick_title.strip().lower(),[])
-def format_brick(brick,attrs):
-    txt="📦 "+brick["brick_title"]+"\n🔢 Brick Code: "+brick["brick_code"]+"\n\n📂 Segment: "+str(brick["segment"])+" ("+str(brick["segment_code"])+")\n📁 Family: "+str(brick["family"])+" ("+str(brick["family_code"])+")\n📄 Class: "+str(brick["class"])+" ("+str(brick["class_code"])+")\n\n"
-    if brick.get("includes"): txt+="✅ Includes:\n"+brick["includes"]+"\n\n"
-    if brick.get("excludes"): txt+="⛔ Excludes:\n"+brick["excludes"]+"\n\n"
-    if attrs:
-        txt+="⚙️ Attributes:\n"
-        for a in attrs:
-            txt+="\n• "+a["attribute_title"]+" ("+a["attribute_code"]+")\n"
-            if a.get("values"):
-                vals=a["values"][:15]; txt+="  "+ ", ".join(vals)
-                if len(a["values"])>15: txt+=" ... (+"+str(len(a["values"])-15)+" more)"
-                txt+="\n"
-    return txt
-def search_ref(kind,query):
-    q=query.strip(); qu=q.upper().strip()
-    if kind=="cities": by_code,index=CITY_BY_CODE,CITY_INDEX
-    elif kind=="country": by_code,index=COUNTRY_BY_CODE,COUNTRY_INDEX
-    elif kind=="currency": by_code,index=CURRENCY_BY_CODE,CURRENCY_INDEX
-    elif kind=="package": by_code,index
+        out=[t for
