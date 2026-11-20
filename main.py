@@ -82,23 +82,23 @@ for fn in ['gs1xlsx.xlsx']:
             continue
         r = list(r) + [''] * 15
         r = tuple(r)
-        bt = str(r[10] or '')
+        bt = str(GV(r, 10) or '')
         if not bt:
             continue
         k = bt.strip().lower()
         if k not in BI:
             d = {}
-            d['c'] = str(r[9] or '')
+            d['c'] = str(GV(r, 9) or '')
             d['t'] = bt
-            d['s'] = r[1]
-            d['f'] = r[4]
-            d['cl'] = r[7]
-            d['i'] = r[11] or ''
-            d['e'] = r[12] or ''
+            d['s'] = GV(r, 1)
+            d['f'] = GV(r, 4)
+            d['cl'] = GV(r, 7)
+            d['i'] = GV(r, 11) or ''
+            d['e'] = GV(r, 12) or ''
             BI[k] = d
             BC[d['c']] = k
-        if r[13] != '':
-            ac = str(r[13])
+        if GV(r, 13) != '':
+            ac = str(GV(r, 13))
             if k not in BA:
                 BA[k] = []
             ex = None
@@ -106,7 +106,7 @@ for fn in ['gs1xlsx.xlsx']:
                 if a['c'] == ac:
                     ex = a
             if ex is None:
-                ex = {'c': ac, 't': r[14], 'v': []}
+                ex = {'c': ac, 't': GV(r, 14), 'v': []}
                 BA[k].append(ex)
     wb.close()
 REF = {}
@@ -235,7 +235,7 @@ def load_tar(fn):
     wb.close()
 if os.path.isdir('tarifa'):
     for f in sorted(os.listdir('tarifa')):
-        if '.xlsx' in f.lower():
+        if f.lower().endswith('.xlsx'):
             load_tar(os.path.join('tarifa', f))
 for fn in ['30285-1.xlsx', '70490-2.xlsx']:
     if os.path.exists(fn):
@@ -307,368 +307,4 @@ if os.path.exists(F3):
                 continue
             d = {}
             d['pol'] = pol
-            d['pod'] = pod
-            d['line'] = CC(GV(r, 2))
-            d['tt'] = CC(GV(r, 3))
-            d['co'] = CC(GV(r, 4))
-            ROT.append(d)
-    wb.close()
-AM = {}
-AM['ميرسك'] = 'MAERSK'
-AM['هاباج'] = 'HAPAG'
-AM['كوسكو'] = 'COSCO'
-AM['ايفرجرين'] = 'EVERGREEN'
-AM['ام اس سي'] = 'MSC'
-AM['زيم'] = 'ZIM'
-AM['اركاس'] = 'ARKAS'
-AM['وان'] = 'ONE'
-def RL(q):
-    q = (q or '').strip()
-    if not q:
-        return None
-    if q.upper() in LC:
-        return q.upper()
-    if q.lower() in AM:
-        return AM[q.lower()]
-    ql = q.lower()
-    for k in LN:
-        if ql in k.lower():
-            return k
-    return None
-def FL(k, cat):
-    cs = LC.get(k, [])
-    dp = LN.get(k, k)
-    if not cs:
-        return 'ملقيتش: ' + dp
-    t = dp + '\n'
-    if cat == 'BK':
-        t = t + 'Booking:\n'
-        for x in cs:
-            t = t + x['name'] + ' - ' + x['email'] + '\n'
-            t = t + x['book'] + '\n'
-        return t.strip()
-    if cat == 'IN':
-        t = t + 'Invoice:\n'
-        for x in cs:
-            if x['inv']:
-                t = t + x['name'] + ' - ' + x['email'] + '\n'
-                t = t + x['inv'] + '\n'
-        return t.strip()
-    t = t + 'العدد: ' + str(len(cs)) + '\n\n'
-    for c in cs[:10]:
-        if c['name']:
-            t = t + c['name'] + '\n'
-        if c['pos']:
-            t = t + c['pos'] + '\n'
-        if c['email']:
-            t = t + c['email'] + '\n'
-        if c['num']:
-            t = t + c['num'] + '\n'
-        if c['book']:
-            t = t + 'Booking: ' + c['book'] + '\n'
-        if c['inv']:
-            t = t + 'Invoice: ' + c['inv'] + '\n'
-        t = t + '\n'
-    return t.strip()
-def SROT(pol, pod):
-    out = []
-    for r in ROT:
-        if pol.lower() in r['pol'].lower():
-            if pod.lower() in r['pod'].lower():
-                out.append(r)
-    return out[:10]
-def FROT(rs, pol, pod):
-    if not rs:
-        return 'ملقيتش خط من ' + pol + ' لـ ' + pod
-    t = 'من ' + pol + ' لـ ' + pod + ':\n\n'
-    for r in rs:
-        t = t + r['line'] + ' | ' + r['pol'] + ' -> ' + r['pod']
-        if r['tt']:
-            t = t + ' - ' + r['tt']
-        t = t + ' | ' + r['co'] + '\n'
-    return t
-WEL = 'Welcome to Captain Emad Customs Bot'
-HELP = 'تعريفة: 0302.44 - توكيلات: MAERSK - خط: Alex Izmir - شركات: شركات - GPC: gpc Airbrushes - مستندات: تزيل 1 - القايمة: menu'
-def LU():
-    return LJ('users.json', {})
-def SU(u):
-    SJ('users.json', u)
-def OK(uid):
-    if str(uid) == str(ADM):
-        return True
-    u = LU()
-    if str(uid) not in u:
-        return False
-    return u[str(uid)].get('status') == 'accepted'
-def FB(b):
-    t = b['t'] + '\n'
-    t = t + 'Brick: ' + b['c'] + '\n'
-    t = t + 'Segment: ' + str(b['s']) + '\n'
-    t = t + 'Family: ' + str(b['f']) + '\n'
-    t = t + 'Class: ' + str(b['cl']) + '\n'
-    if b['i']:
-        t = t + 'Includes: ' + str(b['i']) + '\n'
-    if b['e']:
-        t = t + 'Excludes: ' + str(b['e']) + '\n'
-    at = BA.get(b['t'].strip().lower(), [])
-    if at:
-        t = t + 'Attributes:\n'
-        for a in at:
-            t = t + str(a['t']) + ' (' + str(a['c']) + ')\n'
-            if a['v']:
-                t = t + ', '.join(a['v'][:10]) + '\n'
-    return t
-def SGPC(q):
-    qq = re.sub(r'\s+', ' ', (q or '').strip().lower())
-    if not qq:
-        return None
-    dg = re.sub(r'\D', '', qq)
-    if dg and dg in BC:
-        return BI[BC[dg]]
-    if qq in BI:
-        return BI[qq]
-    m = [BI[k] for k in BI if qq in k]
-    if len(m) == 1:
-        return m[0]
-    if len(m) > 1:
-        return ('m', m[:10])
-    return None
-def PG(items, page, pre, lab):
-    per = 10
-    st = page * per
-    tp = max(1, (len(items) + per - 1) // per)
-    rows = []
-    for i in range(st, min(st + per, len(items))):
-        cb = pre + 'sel_' + str(i)
-        rows.append([B(lab(items[i]), cb)])
-    nav = []
-    if page > 0:
-        nav.append(B('السابق', pre + 'page_' + str(page - 1)))
-    if page < tp - 1:
-        nav.append(B('التالي', pre + 'page_' + str(page + 1)))
-    if nav:
-        rows.append(nav)
-    rows.append([B('القايمة', 'm_main')])
-    txt = 'اختار صفحة ' + str(page + 1) + ' من ' + str(tp)
-    return MK(rows), txt
-async def SEND(up, ctx, kind, page, q):
-    if up.message:
-        uid = up.message.from_user.id
-    else:
-        uid = up.callback_query.from_user.id
-    ctx.bot_data['fq'] = q
-    ctx.bot_data['fk'] = kind
-    if kind == 'comp':
-        ct = ctx.bot_data.get('ct', '')
-        items = GC(q, ct)
-        kb, txt = PG(items, page, 'comp_', lambda c: c['name'][:40] + ' - ' + c['reg'])
-    elif kind == 'tariff':
-        items = TL
-        if q:
-            items = [t for t in TL if NA(q) in NA(t['desc']) or q in t['code']]
-        kb, txt = PG(items, page, 'tariff_', lambda t: t['code'] + ' - ' + t['desc'][:35])
-    elif kind == 'line':
-        items = sorted(LN.keys(), key=lambda x: LN[x])
-        if q:
-            items = [k for k in items if q.lower() in LN[k].lower()]
-        kb, txt = PG(items, page, 'line_', lambda k: LN[k][:40])
-    else:
-        items = sorted(REF[kind].values(), key=lambda x: x['code'])
-        if q:
-            items = [x for x in items if q.lower() in x['name'].lower() or q.upper() in x['code']]
-        kb, txt = PG(items, page, 'ref_' + kind + '_', lambda x: x['name'][:35] + ' - ' + x['code'])
-    ctx.bot_data['lst'] = items
-    if up.message:
-        await up.message.reply_text(txt, reply_markup=kb)
-    else:
-        try:
-            await up.callback_query.message.edit_text(txt, reply_markup=kb)
-        except:
-            await up.callback_query.message.reply_text(txt, reply_markup=kb)
-async def START(update, ctx):
-    us = update.message.from_user
-    u = LU()
-    uid = str(us.id)
-    now = time.time()
-    if uid in u and u[uid].get('status') == 'accepted':
-        await update.message.reply_text(WEL, reply_markup=MAIN_KB())
-        return
-    if uid not in u:
-        code = 'USR-' + ''.join(random.choices('0123456789', k=4))
-        d = {}
-        d['code'] = code
-        d['name'] = us.first_name or ''
-        d['status'] = 'pending'
-        d['requested_at'] = now
-        u[uid] = d
-        SU(u)
-    else:
-        code = u[uid]['code']
-        u[uid]['status'] = 'pending'
-        SU(u)
-    msg = WEL + '\nCode: ' + code
-    await update.message.reply_text(msg, reply_markup=MAIN_KB())
-    if ADM:
-        a = B('قبول', 'accept_' + uid)
-        b = B('رفض', 'reject_' + uid)
-        kb = MK([[a, b]])
-        try:
-            await ctx.bot.send_message(chat_id=int(ADM), text='New: ' + code, reply_markup=kb)
-        except:
-            pass
-async def BTN(update, ctx):
-    q = update.callback_query
-    try:
-        await q.answer()
-    except:
-        pass
-    d = q.data
-    uid = q.from_user.id
-    if d == 'm_main':
-        await q.message.reply_text('القايمة:', reply_markup=MAIN_KB())
-        return
-    if d == 'm_lines':
-        await SEND(q, ctx, 'line', 0, '')
-        return
-    if d == 'm_comp':
-        kb = COMP_KB()
-        await q.message.reply_text('الشركات:', reply_markup=kb)
-        return
-    if d == 'ct_pri':
-        ctx.bot_data['ct'] = 'private'
-        await SEND(q, ctx, 'comp', 0, '')
-        return
-    if d == 'ct_gov':
-        ctx.bot_data['ct'] = 'gov'
-        await SEND(q, ctx, 'comp', 0, '')
-        return
-    if d == 'ct_for':
-        ctx.bot_data['ct'] = 'foreign'
-        await SEND(q, ctx, 'comp', 0, '')
-        return
-    if d == 'm_tariff':
-        await SEND(q, ctx, 'tariff', 0, '')
-        return
-    if d == 'm_gpc':
-        await q.message.reply_text('اكتب: gpc Airbrushes')
-        return
-    if d == 'm_rot':
-        await q.message.reply_text('اكتب: Alex Izmir')
-        return
-    if d == 'm_country':
-        await SEND(q, ctx, 'country', 0, '')
-        return
-    if d == 'm_cities':
-        await SEND(q, ctx, 'cities', 0, '')
-        return
-    if d == 'm_cur':
-        await q.message.reply_text('اكتب: currency USD')
-        return
-    if d == 'm_pack':
-        await q.message.reply_text('اكتب: package Box')
-        return
-    if d == 'm_uom':
-        await q.message.reply_text('اكتب: uom KG')
-        return
-    if d == 'm_help':
-        await q.message.reply_text(HELP, reply_markup=MAIN_KB())
-        return
-    if d == 'm_recent':
-        lst = ctx.user_data.get('recent', [])
-        if not lst:
-            await q.message.reply_text('لسه مفيش بحث')
-            return
-        t = 'اخر بحث:\n'
-        for x in lst:
-            t = t + x + '\n'
-        await q.message.reply_text(t)
-        return
-    if d == 'm_docs':
-        ds = LJ('docs_index.json', [])
-        if not ds:
-            await q.message.reply_text('مفيش مستندات')
-            return
-        t = 'المستندات:\n'
-        for x in ds:
-            t = t + str(x['num']) + ' - ' + x['name'] + '\n'
-        t = t + '\nاكتب: تزيل 1'
-        await q.message.reply_text(t)
-        return
-    if d.startswith('comp_page_'):
-        p = int(d.split('_')[2])
-        await SEND(q, ctx, 'comp', p, ctx.bot_data.get('fq', ''))
-        return
-    if d.startswith('comp_sel_'):
-        i = int(d.split('_')[2])
-        lst = ctx.bot_data.get('lst', [])
-        if 0 <= i < len(lst):
-            await q.message.reply_text(FC(lst[i]))
-        return
-    if d.startswith('tariff_page_'):
-        p = int(d.split('_')[2])
-        await SEND(q, ctx, 'tariff', p, ctx.bot_data.get('fq', ''))
-        return
-    if d.startswith('tariff_sel_'):
-        i = int(d.split('_')[2])
-        lst = ctx.bot_data.get('lst', [])
-        if 0 <= i < len(lst):
-            await q.message.reply_text(FT(lst[i]))
-        return
-    if d.startswith('line_page_'):
-        p = int(d.split('_')[2])
-        await SEND(q, ctx, 'line', p, ctx.bot_data.get('fq', ''))
-        return
-    if d.startswith('line_sel_'):
-        i = int(d.split('_')[2])
-        lst = ctx.bot_data.get('lst', [])
-        if 0 <= i < len(lst):
-            k = lst[i]
-            await q.message.reply_text(FL(k, 'ALL'), reply_markup=LCAT_KB(k))
-        return
-    if d.startswith('ref_'):
-        ps = d.split('_')
-        kind = ps[1]
-        if ps[2] == 'page':
-            p = int(ps[3])
-            await SEND(q, ctx, kind, p, ctx.bot_data.get('fq', ''))
-            return
-        if ps[2] == 'sel':
-            i = int(ps[3])
-            lst = ctx.bot_data.get('lst', [])
-            if 0 <= i < len(lst):
-                it = lst[i]
-                t = it['name'] + '\n' + it['code']
-                await q.message.reply_text(t)
-            return
-    if d.startswith('lc_'):
-        ps = d.split('_')
-        k = ps[1]
-        cat = ps[2]
-        await q.message.reply_text(FL(k, cat), reply_markup=LCAT_KB(k))
-        return
-    if d.startswith('accept_'):
-        uid2 = d.split('_')[1]
-        u = LU()
-        if uid2 in u:
-            u[uid2]['status'] = 'accepted'
-            SU(u)
-            await ctx.bot.send_message(chat_id=int(uid2), text=WEL, reply_markup=MAIN_KB())
-            await q.message.reply_text('Accepted')
-        return
-    if d.startswith('reject_'):
-        uid2 = d.split('_')[1]
-        u = LU()
-        if uid2 in u:
-            u[uid2]['status'] = 'rejected'
-            SU(u)
-            await q.message.reply_text('Rejected')
-        return
-    if d.startswith('gpc_'):
-        i = int(d.split('_')[1])
-        lst = ctx.user_data.get('gpc', [])
-        if 0 <= i < len(lst):
-            await q.message.reply_text(FB(lst[i]))
-        return
-async def SAVE_DOC(update, ctx):
-    if str(update.message.from_user.id) != str(ADM):
-        return
+           
