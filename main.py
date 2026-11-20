@@ -13,10 +13,18 @@ from telegram.ext import MessageHandler
 from telegram.ext import CallbackQueryHandler
 from telegram.ext import ContextTypes
 from telegram.ext import filters
+
 BOT = os.getenv("BOT_TOKEN")
 ADM = os.getenv("ADMIN_ID")
 SL = chr(47)
 os.makedirs("docs", exist_ok=True)
+
+# صورة النهاية - لازم تكون جنب الكود بنفس الاسم
+END_IMG = "end_session.jpg"
+END_WORDS = ["خلصت", "شكرا", "شكرا لك", "تمام كده", "كفايه", "كفاية", "سلام", "bye", "thanks", "thank you"]
+# لو عايز تغير مدة السكوت غير الرقم ده - 600 ثانية = 10 دقايق
+END_TIMEOUT = 600
+
 def LJ(f, d):
     try:
         return json.load(open(f, encoding="utf-8"))
@@ -69,6 +77,8 @@ def LCAT_KB(k):
     r2 = [B("📧 الايميلات", "lc_" + k + "_AL")]
     r3 = [B("🏠 القايمة الرئيسية", "m_main")]
     return MK([r1, r2, r3])
+
+# ===== GPC - من ملفه بس =====
 BI = {}
 BC = {}
 BA = {}
@@ -110,6 +120,8 @@ for fn in ["gs1xlsx.xlsx"]:
                 ex = {"c": ac, "t": GV(r, 14), "v": []}
                 BA[k].append(ex)
     wb.close()
+
+# ===== المراجع - من ملف cities.xlsx بس =====
 REF = {}
 for kind in ["cities", "country", "currency", "package", "uom"]:
     REF[kind] = {}
@@ -131,6 +143,8 @@ if os.path.exists("cities.xlsx"):
                 continue
             REF[kind][c] = {"code": c, "name": n}
     wb.close()
+
+# ===== الشركات - من 2026 بس، 111111 اتلغى من الكود =====
 CL = []
 CBR = {}
 def AC(n, f, rg, en, ac, st, ad, ct):
@@ -139,6 +153,11 @@ def AC(n, f, rg, en, ac, st, ad, ct):
     if not n or not rg:
         return
     if rg in CBR:
+        return
+    # تخطي الصف البايظ في شيت حكومي
+    if "قطاع" in n and "حكومي" in n:
+        return
+    if "الاسم" in n:
         return
     it = {}
     it["name"] = n
@@ -151,17 +170,8 @@ def AC(n, f, rg, en, ac, st, ad, ct):
     it["ct"] = ct
     CL.append(it)
     CBR[rg] = it
-F1 = "ارقام_تسجيل_الشركات_111111.xlsx"
-if os.path.exists(F1):
-    wb = openpyxl.load_workbook(F1, read_only=True)
-    ws = wb[wb.sheetnames[0]]
-    for r in ws.iter_rows(values_only=True):
-        if not r or not GV(r, 0):
-            continue
-        if "الاسم" in str(GV(r, 0)):
-            continue
-        AC(GV(r, 0), CC(GV(r, 1)), CC(GV(r, 2)), CC(GV(r, 3)), CC(GV(r, 4)), CC(GV(r, 5)), CC(GV(r, 6)), "private")
-    wb.close()
+
+# ملحوظة: ملف 111111 موجود عندك بس البوت مش بيقراه تاني عشان كان بيبوظ النتايج
 F2 = "ارقام_تسجيل_الشركات_2026.xlsx"
 if os.path.exists(F2):
     wb = openpyxl.load_workbook(F2, read_only=True)
@@ -169,8 +179,7 @@ if os.path.exists(F2):
         for r in wb["خاص"].iter_rows(values_only=True):
             if not r or not GV(r, 0) or not GV(r, 1):
                 continue
-            e = "خاص - "
-            e += CC(GV(r, 3))
+            e = "خاص - " + CC(GV(r, 3))
             AC(GV(r, 1), "", GV(r, 0), e, "", CC(GV(r, 5)), CC(GV(r, 4)), "private")
     if "حكومي" in wb.sheetnames:
         for r in wb["حكومي"].iter_rows(values_only=True):
@@ -183,6 +192,7 @@ if os.path.exists(F2):
                 continue
             AC(GV(r, 2), "", GV(r, 1), "فرع اجنبي", "", "", CC(GV(r, 3)), "foreign")
     wb.close()
+
 def FC(c):
     t = "🏢 " + c["name"] + "\n"
     t += "رقم التسجيل: " + c["reg"] + "\n"
@@ -195,19 +205,18 @@ def FC(c):
     if c["ad"]:
         t += "العنوان: " + c["ad"] + "\n"
     return t.strip()
+
 def GC(q, ct):
     out = [c for c in CL if not ct or c["ct"] == ct]
     nq = NA(q)
     if not nq:
         return out
-    # بحث بالكلمات: اي كلمة مهمة لوحدها تكفي، وبحث برقم التسجيل او جزء منه
     words = [w for w in nq.split() if len(w) >= 2 and w not in ["شركه", "شركة", "الشركه"]]
     o = []
     for c in out:
         nn = NA(c["name"])
         na = NA(c["act"])
         reg = str(c["reg"]).replace(" ", "")
-        # رقم التسجيل او جزء منه
         if nq.replace(" ", "") in reg or reg in nq.replace(" ", ""):
             o.append(c)
             continue
@@ -218,6 +227,8 @@ def GC(q, ct):
             if nq in nn or nq in na:
                 o.append(c)
     return o
+
+# ===== التعريفة - كل ملفات tarifa + توحيد الأعمدة =====
 TL = []
 TB = {}
 def NTC(s):
@@ -228,7 +239,10 @@ def NTC(s):
         s = s[:4] + "." + s[4:6] + "." + s[6:]
     return s
 def load_tar(fn):
-    wb = openpyxl.load_workbook(fn, read_only=True)
+    try:
+        wb = openpyxl.load_workbook(fn, read_only=True)
+    except:
+        return
     ws = wb[wb.sheetnames[0]]
     for r in ws.iter_rows(values_only=True):
         if not r:
@@ -238,6 +252,9 @@ def load_tar(fn):
         if not code or not desc:
             continue
         if code in TB:
+            # لو البند موجود قبل كده، كمل بياناته لو ناقصة - مش تمسح القديم
+            if not TB[code].get("tax") and CC(GV(r, 2)):
+                TB[code]["tax"] = CC(GV(r, 2))
             continue
         it = {}
         it["code"] = code
@@ -246,6 +263,7 @@ def load_tar(fn):
         TB[code] = it
         TL.append(it)
     wb.close()
+
 if os.path.isdir("tarifa"):
     for f in sorted(os.listdir("tarifa")):
         if f.lower().endswith(".xlsx"):
@@ -253,6 +271,7 @@ if os.path.isdir("tarifa"):
 for fn in ["30285-1.xlsx", "70490-2.xlsx"]:
     if os.path.exists(fn):
         load_tar(fn)
+
 def ST(q):
     q = (q or "").strip()
     if not q:
@@ -260,24 +279,27 @@ def ST(q):
     cq = NTC(q)
     if cq in TB:
         return [TB[cq]]
-    # بحث بالكود من غير نقط
     qd = q.replace(".", "").replace(" ", "")
-    for code, it in TB.items():
-        if code.replace(".", "") == qd or code.replace(".", "").startswith(qd) or qd.startswith(code.replace(".", "")):
-            return [it]
+    if qd.isdigit():
+        for code, it in TB.items():
+            if code.replace(".", "") == qd or code.replace(".", "").startswith(qd):
+                return [it]
     nq = NA(q)
     out = []
     for t in TL:
         if nq in NA(t["desc"]) or nq in NA(t["code"]) or q in t["code"]:
             out.append(t)
-            if len(out) >= 10:
+            if len(out) >= 50:
                 break
     return out
+
 def FT(t):
     x = "📜 " + t["desc"] + "\n"
     x += "البند: " + t["code"] + "\n"
     x += "الضريبة: " + t["tax"]
     return x.strip()
+
+# ===== التوكيلات + Rotation - من ملف التوكيلات بس =====
 LC = {}
 LN = {}
 ROT = []
@@ -297,49 +319,28 @@ if os.path.exists(F3):
             k = cur.upper()
             if k not in LN:
                 LN[k] = cur
-            nm = CC(GV(r, 1))
-            po = CC(GV(r, 2))
-            em = CC(GV(r, 3))
-            nu = CC(GV(r, 4))
-            bk = CC(GV(r, 5))
-            inv = CC(GV(r, 9))
+            nm = CC(GV(r, 1)); po = CC(GV(r, 2)); em = CC(GV(r, 3)); nu = CC(GV(r, 4)); bk = CC(GV(r, 5)); inv = CC(GV(r, 9))
             if not nm and not em and not nu:
                 continue
             if k not in LC:
                 LC[k] = []
             d = {}
-            d["name"] = nm
-            d["pos"] = po
-            d["email"] = em
-            d["num"] = nu
-            d["book"] = bk
-            d["inv"] = inv
+            d["name"] = nm; d["pos"] = po; d["email"] = em; d["num"] = nu; d["book"] = bk; d["inv"] = inv
             LC[k].append(d)
     if "SERVICE ROTATION" in wb.sheetnames:
         for r in wb["SERVICE ROTATION"].iter_rows(values_only=True):
             if not r:
                 continue
-            pol = CC(GV(r, 0))
-            pod = CC(GV(r, 1))
+            pol = CC(GV(r, 0)); pod = CC(GV(r, 1))
             if not pol or not pod:
                 continue
             d = {}
-            d["pol"] = pol
-            d["pod"] = pod
-            d["line"] = CC(GV(r, 2))
-            d["tt"] = CC(GV(r, 3))
-            d["co"] = CC(GV(r, 4))
+            d["pol"] = pol; d["pod"] = pod; d["line"] = CC(GV(r, 2)); d["tt"] = CC(GV(r, 3)); d["co"] = CC(GV(r, 4))
             ROT.append(d)
     wb.close()
+
 AM = {}
-AM["ميرسك"] = "MAERSK"
-AM["هاباج"] = "HAPAG"
-AM["كوسكو"] = "COSCO"
-AM["ايفرجرين"] = "EVERGREEN"
-AM["ام اس سي"] = "MSC"
-AM["زيم"] = "ZIM"
-AM["اركاس"] = "ARKAS"
-AM["وان"] = "ONE"
+AM["ميرسك"] = "MAERSK"; AM["هاباج"] = "HAPAG"; AM["كوسكو"] = "COSCO"; AM["ايفرجرين"] = "EVERGREEN"; AM["ام اس سي"] = "MSC"; AM["زيم"] = "ZIM"; AM["اركاس"] = "ARKAS"; AM["وان"] = "ONE"
 def RL(q):
     q = (q or "").strip()
     if not q:
@@ -372,18 +373,12 @@ def FL(k, cat):
         return t.strip()
     t += "العدد: " + str(len(cs)) + "\n\n"
     for c in cs[:10]:
-        if c["name"]:
-            t += c["name"] + "\n"
-        if c["pos"]:
-            t += c["pos"] + "\n"
-        if c["email"]:
-            t += c["email"] + "\n"
-        if c["num"]:
-            t += c["num"] + "\n"
-        if c["book"]:
-            t += "Booking: " + c["book"] + "\n"
-        if c["inv"]:
-            t += "Invoice: " + c["inv"] + "\n"
+        if c["name"]: t += c["name"] + "\n"
+        if c["pos"]: t += c["pos"] + "\n"
+        if c["email"]: t += c["email"] + "\n"
+        if c["num"]: t += c["num"] + "\n"
+        if c["book"]: t += "Booking: " + c["book"] + "\n"
+        if c["inv"]: t += "Invoice: " + c["inv"] + "\n"
         t += "\n"
     return t.strip()
 def SROT(pol, pod):
@@ -399,12 +394,32 @@ def FROT(rs, pol, pod):
     t = "🔄 من " + pol + " لـ " + pod + ":\n\n"
     for r in rs:
         t += r["line"] + " | " + r["pol"] + " -> " + r["pod"]
-        if r["tt"]:
-            t += " - " + r["tt"]
+        if r["tt"]: t += " - " + r["tt"]
         t += " | " + r["co"] + "\n"
     return t
+
 WEL = "Welcome to Captain Emad Customs Bot"
-HELP = "📦 GPC: GPC Airbrushes\n🚢 توكيلات: MAERSK او ميرسك\n📜 تعريفة: 0302.44 او اسم الصنف\n🏢 شركات: النور او رقم التسجيل\n🔄 خط: Alex Izmir\n📦 Package: package Box\n💱 Currency: currency USD\n⚖️ UOM: uom KG\n🌍 Country: country Egypt\n🏙️ Cities: city Cairo\n📄 مستندات: تزيل 1 او تزيل اسم المستند 1\nالقايمة: menu"
+HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
+
+🚢 توكيلات: اكتب MAERSK او ميرسك - هيطلعلك الايميلات والارقام والـ Booking والـ Invoice
+📦 GPC: اكتب GPC Airbrushes او GPC + الاسم او الكود
+📜 التعريفة: اكتب 8420 او 84 او اسم الصنف او جزء منه او كلمة دالة - مثال: مروحة
+    - دوس على البند هيطلعلك بيانات التعريفة كاملة
+    - استخدم التالي / السابق عشان تقلب في النتايج
+🏢 شركات: اكتب النور او رقم التسجيل 100271510 - اختار الخاصة / الحكومية / الاجنبية من القايمة
+🔄 Rotation: اكتب Alex Izmir - مدينة البداية ومدينة الوصول
+🌍 Country: اكتب country Egypt او country مص
+🏙️ Cities: اكتب city Cairo او city القاهرة
+💱 Currency: اكتب currency USD
+📦 Package: اكتب package Box
+⚖️ UOM: اكتب uom KG
+📄 مستندات: اكتب تزيل 1 او تزيل اسم المستند 1 - او دوس على زرار مستندات
+🕐 اخر بحث: بيجيب اخر حاجة بحثت عنها
+القايمة: اكتب menu
+
+لو بحثك لقى نتيجة في اكتر من ايقونة، البوت هيخيرك تختار انهي واحدة.
+"""
+
 def LU():
     return LJ("users.json", {})
 def SU(u):
@@ -416,24 +431,23 @@ def OK(uid):
     if str(uid) not in u:
         return False
     return u[str(uid)].get("status") == "accepted"
+
 def FB(b):
     t = "📦 " + b["t"] + "\n"
     t += "Brick: " + b["c"] + "\n"
     t += "Segment: " + str(b["s"]) + "\n"
     t += "Family: " + str(b["f"]) + "\n"
     t += "Class: " + str(b["cl"]) + "\n"
-    if b["i"]:
-        t += "Includes: " + str(b["i"]) + "\n"
-    if b["e"]:
-        t += "Excludes: " + str(b["e"]) + "\n"
+    if b["i"]: t += "Includes: " + str(b["i"]) + "\n"
+    if b["e"]: t += "Excludes: " + str(b["e"]) + "\n"
     at = BA.get(b["t"].strip().lower(), [])
     if at:
         t += "Attributes:\n"
         for a in at:
             t += str(a["t"]) + " (" + str(a["c"]) + ")\n"
-            if a["v"]:
-                t += ", ".join(a["v"][:10]) + "\n"
+            if a["v"]: t += ", ".join(a["v"][:10]) + "\n"
     return t
+
 def SGPC(q):
     qq = re.sub(r"\s+", " ", (q or "").strip().lower())
     if not qq:
@@ -448,7 +462,6 @@ def SGPC(q):
         return m[0]
     if len(m) > 1:
         return ("m", m[:10])
-    # بحث باي كلمة من الاسم
     words = [w for w in qq.split() if len(w) >= 3]
     if words:
         m2 = [BI[k] for k in BI if any(w in k for w in words)]
@@ -457,6 +470,7 @@ def SGPC(q):
         if len(m2) > 1:
             return ("m", m2[:10])
     return None
+
 def PG(items, page, pre, lab):
     per = 10
     st = page * per
@@ -475,6 +489,7 @@ def PG(items, page, pre, lab):
     rows.append([B("🏠 القايمة الرئيسية", "m_main")])
     txt = "اختار صفحة " + str(page + 1) + " من " + str(tp) + " - العدد: " + str(len(items))
     return MK(rows), txt
+
 def SREF(kind, q):
     items = sorted(REF[kind].values(), key=lambda x: x["code"])
     if not q:
@@ -485,6 +500,46 @@ def SREF(kind, q):
         if nq in NA(x["name"]) or nq in NA(x["code"]) or q.upper() in x["code"] or nq in x["code"].lower():
             out.append(x)
     return out
+
+# ===== صورة النهاية =====
+async def SEND_END_IMAGE(ctx, chat_id):
+    # مرة واحدة بس في الجلسة
+    if ctx.user_data.get("end_sent"):
+        return
+    ctx.user_data["end_sent"] = True
+    if os.path.exists(END_IMG):
+        try:
+            await ctx.bot.send_photo(chat_id=chat_id, photo=open(END_IMG, "rb"), caption="لو حابب تكمل أو تشترك، دي بيانات التواصل بتاعتنا ❤️")
+            return
+        except:
+            pass
+    # لو الصورة مش موجودة، ابعت نص بديل
+    await ctx.bot.send_message(chat_id=chat_id, text="لو حابب تكمل أو تشترك:\nTelegram: https://t.me/tarrifabot\nWhatsApp: wa.me/+201094038730\nPhone: 01094038730")
+
+async def END_JOB(ctx):
+    # شغل بعد 10 دقايق سكوت
+    chat_id = ctx.job.chat_id
+    await SEND_END_IMAGE(ctx, chat_id)
+
+def RESET_END_TIMER(ctx):
+    # الغي المؤقت القديم وابدأ واحد جديد - عشان الـ 10 دقايق تتحسب من اخر رسالة
+    try:
+        jobs = ctx.job_queue.get_jobs_by_name("end_timer_" + str(ctx._chat_id if hasattr(ctx, "_chat_id") else ""))
+        for j in jobs:
+            j.schedule_removal()
+    except:
+        pass
+    try:
+        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=ctx._chat_id if hasattr(ctx, "_chat_id") else None, name="end_timer")
+    except:
+        pass
+
+def SAVE_RECENT(ctx, text):
+    lst = ctx.user_data.get("recent", [])
+    lst.append(text)
+    # خلي اخر 10 بس
+    ctx.user_data["recent"] = lst[-10:]
+
 async def SEND(up, ctx, kind, page, q):
     if up.message:
         uid = up.message.from_user.id
@@ -539,7 +594,9 @@ async def SEND(up, ctx, kind, page, q):
             await up.callback_query.message.edit_text(txt, reply_markup=kb)
         except:
             await up.callback_query.message.reply_text(txt, reply_markup=kb)
+
 async def START(update, ctx):
+    ctx.user_data["end_sent"] = False
     us = update.message.from_user
     u = LU()
     uid = str(us.id)
@@ -570,6 +627,7 @@ async def START(update, ctx):
             await ctx.bot.send_message(chat_id=int(ADM), text="New: " + code, reply_markup=kb)
         except:
             pass
+
 async def BTN(update, ctx):
     q = update.callback_query
     try:
@@ -578,6 +636,11 @@ async def BTN(update, ctx):
         pass
     d = q.data
     uid = q.from_user.id
+    # اي ضغطة زرار بتلغي مؤقت النهاية وتبدأ واحد جديد
+    try:
+        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=q.message.chat_id, name="end_timer")
+    except:
+        pass
     if d == "m_main":
         await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
@@ -639,6 +702,20 @@ async def BTN(update, ctx):
         return
     if d == "m_docs":
         await SEND(q, ctx, "docs", 0, "")
+        return
+    # اختيار من البحث المتعدد
+    if d.startswith("pick_"):
+        kind = d.split("_")[1]
+        qq = ctx.user_data.get("multi_q", "")
+        ctx.user_data["multi_q"] = ""
+        if kind == "comp":
+            await SEND(q, ctx, "comp", 0, qq)
+        elif kind == "tariff":
+            await SEND(q, ctx, "tariff", 0, qq)
+        elif kind == "line":
+            await SEND(q, ctx, "line", 0, qq)
+        elif kind == "gpc":
+            await SEND(q, ctx, "gpc", 0, qq)
         return
     if d.startswith("comp_page_"):
         p = int(d.split("_")[2])
@@ -753,6 +830,7 @@ async def BTN(update, ctx):
         except:
             pass
         return
+
 async def SAVE_DOC(update, ctx):
     if str(update.message.from_user.id) != str(ADM):
         return
@@ -779,20 +857,31 @@ async def SAVE_DOC(update, ctx):
     ds.append(d)
     SJ("docs_index.json", ds)
     await update.message.reply_text("اتحفظ " + str(num))
+
 async def HANDLE(update, ctx):
     us = update.message.from_user
     uid = str(us.id)
     text = update.message.text or ""
     low = text.strip().lower()
     bare = text.strip().lstrip(SL).strip().lower()
-    # 3 - مستندات: تزيل 1 او تزيل اسم المستند 1 - الاسم قبل الرقم
+    # جدد مؤقت الـ 10 دقايق مع كل رسالة
+    try:
+        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=update.message.chat_id, name="end_timer")
+    except:
+        pass
+    # كلمة نهاية - ابعت الصورة مرة واحدة
+    if NA(text) in [NA(w) for w in END_WORDS]:
+        await update.message.reply_text("العفو، نورتنا ❤️")
+        await SEND_END_IMAGE(ctx, update.message.chat_id)
+        return
+    # 3 - مستندات
     if "تزيل" in text or "download" in low:
+        SAVE_RECENT(ctx, text)
         m = re.search(r"(\d+)", text)
         if not m:
             await update.message.reply_text("اكتب: تزيل 1 او تزيل اسم المستند 1")
             return
         num = int(m.group(1))
-        # لو فيه اسم قبل الرقم، ابحث بيه كمان
         name_part = re.sub(r"تزيل|download|\d+", "", text, flags=re.I).strip()
         for x in LJ("docs_index.json", []):
             if x["num"] == num:
@@ -827,8 +916,8 @@ async def HANDLE(update, ctx):
     if bare == "توكيلات":
         await SEND(update, ctx, "line", 0, "")
         return
-    # 1 - GPC: GPC او gpc + الاسم او الكود
     if low.startswith("gpc ") or low.startswith("gpc-") or bare == "gpc":
+        SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
         if not qq:
             await SEND(update, ctx, "gpc", 0, "")
@@ -847,8 +936,8 @@ async def HANDLE(update, ctx):
             return
         await update.message.reply_text(FB(b))
         return
-    # 9 - Package
     if low.startswith("package ") or low.startswith("pack ") or bare == "package":
+        SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
         items = SREF("package", qq)
         if not items:
@@ -859,8 +948,8 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "package", 0, qq)
         return
-    # 10 - Currency
     if low.startswith("currency ") or low.startswith("curr ") or bare == "currency":
+        SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
         items = SREF("currency", qq)
         if not items:
@@ -871,8 +960,8 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "currency", 0, qq)
         return
-    # UOM
     if low.startswith("uom ") or bare == "uom":
+        SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
         items = SREF("uom", qq)
         if not items:
@@ -883,8 +972,8 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "uom", 0, qq)
         return
-    # 8 - Country
     if low.startswith("country ") or bare == "country":
+        SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
         items = SREF("country", qq)
         if not items:
@@ -895,8 +984,8 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "country", 0, qq)
         return
-    # 7 - Cities
     if low.startswith("city ") or low.startswith("cities ") or low.startswith("citys ") or bare in ["city", "cities"]:
+        SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
         items = SREF("cities", qq)
         if not items:
@@ -907,8 +996,8 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "cities", 0, qq)
         return
-    # 4 - التعريفة: كود او اسم او جزء منه
     if re.match(r"^[\d\.\s]+$", text.strip()):
+        SAVE_RECENT(ctx, text)
         rs = ST(text.strip())
         if rs:
             if len(rs) == 1:
@@ -918,59 +1007,83 @@ async def HANDLE(update, ctx):
             return
         await update.message.reply_text("📜 ملقيتش بند")
         return
-    # 6 - Rotation: Alex Izmir
     ps = text.strip().split()
     if len(ps) == 2:
         rs = SROT(ps[0], ps[1])
         if rs:
+            SAVE_RECENT(ctx, text)
             await update.message.reply_text(FROT(rs, ps[0], ps[1]))
             return
-    # 2 - توكيلات: كابيتال او سمول
-    k = RL(text.strip())
-    if k:
-        await update.message.reply_text(FL(k, "ALL"), reply_markup=LCAT_KB(k))
+    # ===== البحث الذكي المتعدد - لو لقى في اكتر من ايقونة خيّر المستخدم =====
+    # بنفحص من غير ما نرجع نتيجة واحدة غلط
+    k_line = RL(text.strip())
+    comp_hits = GC(text.strip(), "")
+    tariff_hits = ST(text.strip())
+    gpc_hit = SGPC(text)
+    found = []
+    if k_line: found.append("line")
+    if comp_hits: found.append("comp")
+    if tariff_hits: found.append("tariff")
+    if gpc_hit is not None: found.append("gpc")
+    # لو لقى في 2 او اكتر، خيّر المستخدم - وده الجديد
+    if len(found) >= 2:
+        SAVE_RECENT(ctx, text)
+        ctx.user_data["multi_q"] = text.strip()
+        names = {"line": "🚢 التوكيلات", "comp": "🏢 الشركات", "tariff": "📜 التعريفة", "gpc": "📦 GPC"}
+        t = "بحثك `" + text.strip() + "` وجد في اكتر من ايقونة:\n\n"
+        rows = []
+        for f in found:
+            t += "- " + names[f] + "\n"
+            rows.append([B(names[f], "pick_" + f)])
+        t += "\nماذا تختار منهم؟ دوس على اللي انت عايزه"
+        await update.message.reply_text(t, reply_markup=MK(rows))
         return
-    # 5 - شركات: رقم التسجيل او جزء منه
+    if k_line:
+        SAVE_RECENT(ctx, text)
+        await update.message.reply_text(FL(k_line, "ALL"), reply_markup=LCAT_KB(k_line))
+        return
     if text.strip().isdigit() and len(text.strip()) >= 4:
         if text.strip() in CBR:
+            SAVE_RECENT(ctx, text)
             await update.message.reply_text(FC(CBR[text.strip()]))
             return
-        # بحث بجزء من الرقم
         cand = [c for c in CL if text.strip() in c["reg"]]
         if len(cand) == 1:
+            SAVE_RECENT(ctx, text)
             await update.message.reply_text(FC(cand[0]))
             return
         if cand:
+            SAVE_RECENT(ctx, text)
             await SEND(update, ctx, "comp", 0, text.strip())
             return
-    if GC(text.strip(), ""):
+    if comp_hits:
+        SAVE_RECENT(ctx, text)
         await SEND(update, ctx, "comp", 0, text.strip())
         return
-    # بحث تعريفة بالاسم
-    rs2 = ST(text.strip())
-    if rs2:
-        if len(rs2) == 1:
-            await update.message.reply_text(FT(rs2[0]))
+    if tariff_hits:
+        SAVE_RECENT(ctx, text)
+        if len(tariff_hits) == 1:
+            await update.message.reply_text(FT(tariff_hits[0]))
             return
         await SEND(update, ctx, "tariff", 0, text.strip())
         return
-    # بحث GPC بالاسم من غير بادئة
     if not OK(uid):
         await update.message.reply_text("ابعت start الاول", reply_markup=MAIN_KB())
         return
-    b = SGPC(text)
-    if b is not None:
-        if isinstance(b, tuple):
-            ctx.user_data["gpc"] = b[1]
+    if gpc_hit is not None:
+        SAVE_RECENT(ctx, text)
+        if isinstance(gpc_hit, tuple):
+            ctx.user_data["gpc"] = gpc_hit[1]
             rows = []
-            for i, x in enumerate(b[1]):
+            for i, x in enumerate(gpc_hit[1]):
                 rows.append([B("📦 " + x["t"][:50], "gpc_" + str(i))])
             kb = MK(rows)
             await update.message.reply_text("اختار صنف:", reply_markup=kb)
             return
-        await update.message.reply_text(FB(b))
+        await update.message.reply_text(FB(gpc_hit))
         return
     await update.message.reply_text("وصلت", reply_markup=MAIN_KB())
+
 def MAIN():
     print("Bot starting...")
     app = ApplicationBuilder().token(BOT).build()
