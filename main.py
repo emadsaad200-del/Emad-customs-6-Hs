@@ -110,14 +110,10 @@ def build_reference_index():
     except Exception as e: print(f"Ref index error: {e}")
 build_reference_index()
 COMPANIES_FILE="ارقام_تسجيل_الشركات_111111.xlsx"
+COMPANIES_FILE_2026="ارقام_تسجيل_الشركات_2026.xlsx"
 COMPANY_LIST=[]; COMPANY_BY_REG={}; COMPANY_BY_FILE={}
 COMPANY_NORM_CACHE={}
 def clean_cell(v): return "" if v is None else str(v).strip()
-def norm_ar_old(s):
-    if not s: return ""
-    s=str(s).strip().lower()
-    for ch in ["\u200e","\u200f","\u202a","\u202b","\u202c","\u202d","\u202e","\u200c","\u200d","\u0640","ـ"]: s=s.replace(ch,"")
-    s=s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ة","ه").replace("ى","ي"); s=re.sub(r'\s+',' ',s); return s
 def norm_ar(s):
     if not s: return ""
     s=str(s).strip().lower()
@@ -125,8 +121,7 @@ def norm_ar(s):
     s=s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ٱ","ا").replace("ٲ","ا")
     s=s.replace("ة","ه").replace("ھ","ه").replace("ۀ","ه")
     s=s.replace("ى","ي").replace("ی","ي").replace("ئ","ي").replace("ې","ي")
-    s=s.replace("ؤ","و")
-    s=s.replace("ك","ك").replace("ڪ","ك").replace("ک","ك")
+    s=s.replace("ؤ","و").replace("ڪ","ك").replace("ک","ك")
     s=re.sub(r'[\u064B-\u0652\u0670]', '', s)
     s=s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789"))
     s=re.sub(r'\s+',' ',s)
@@ -136,26 +131,60 @@ def clean_search_words(text):
     words=norm_ar(text).split()
     out=[w for w in words if w not in stop and len(w)>=2]
     return out if out else words
+def _add_company(name, file_no, reg_no, entity, activity, status, address):
+    name=clean_cell(name); reg_no=clean_cell(reg_no).replace(" ","").replace("،","").replace(",","")
+    if not name or not reg_no: return
+    if reg_no in COMPANY_BY_REG: return
+    file_no=clean_cell(file_no).replace(" ","").replace("،","").replace(",","")
+    item={"name":name,"file_no":file_no,"reg_no":reg_no,"entity":clean_cell(entity),"activity":clean_cell(activity),"status":clean_cell(status),"address":clean_cell(address)}
+    COMPANY_LIST.append(item)
+    COMPANY_BY_REG[reg_no]=item
+    if file_no: COMPANY_BY_FILE[file_no]=item
+    COMPANY_NORM_CACHE[len(COMPANY_LIST)-1]={"name":norm_ar(name),"activity":norm_ar(activity),"address":norm_ar(address),"entity":norm_ar(entity)}
 def build_companies_index():
-    if not os.path.exists(COMPANIES_FILE): print("ارقام_تسجيل_الشركات_111111.xlsx not found"); return
+    if os.path.exists(COMPANIES_FILE):
+        try:
+            wb=openpyxl.load_workbook(COMPANIES_FILE,read_only=True,data_only=True); ws=wb[wb.sheetnames[0]]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r: continue
+                    name=clean_cell(r[0]) if len(r)>0 else ""
+                    if not name or "الاسم" in name: continue
+                    _add_company(name, clean_cell(r[1]) if len(r)>1 else "", clean_cell(r[2]) if len(r)>2 else "", clean_cell(r[3]) if len(r)>3 else "", clean_cell(r[4]) if len(r)>4 else "", clean_cell(r[5]) if len(r)>5 else "", clean_cell(r[6]) if len(r)>6 else "")
+                except: continue
+            wb.close(); print(f"Companies OLD: {len(COMPANY_LIST)}")
+        except Exception as e: print(f"Companies OLD error: {e}")
+    if not os.path.exists(COMPANIES_FILE_2026):
+        print("ارقام_تسجيل_الشركات_2026.xlsx not found"); return
     try:
-        wb=openpyxl.load_workbook(COMPANIES_FILE,read_only=True,data_only=True); ws=wb[wb.sheetnames[0]]
-        for r in ws.iter_rows(values_only=True):
-            try:
-                if not r: continue
-                name=clean_cell(r[0]) if len(r)>0 else ""
-                if not name or "الاسم" in name: continue
-                file_no=clean_cell(r[1]) if len(r)>1 else ""; reg_no=clean_cell(r[2]) if len(r)>2 else ""; entity=clean_cell(r[3]) if len(r)>3 else ""; activity=clean_cell(r[4]) if len(r)>4 else ""; status=clean_cell(r[5]) if len(r)>5 else ""; address=clean_cell(r[6]) if len(r)>6 else ""
-                file_no=file_no.replace(" ","").replace("،","").replace(",","")
-                reg_no=reg_no.replace(" ","").replace("،","").replace(",","")
-                item={"name":name,"file_no":file_no,"reg_no":reg_no,"entity":entity,"activity":activity,"status":status,"address":address}
-                COMPANY_LIST.append(item)
-                if reg_no: COMPANY_BY_REG[reg_no]=item
-                if file_no: COMPANY_BY_FILE[file_no]=item
-                COMPANY_NORM_CACHE[len(COMPANY_LIST)-1]={"name":norm_ar(name),"activity":norm_ar(activity),"address":norm_ar(address),"entity":norm_ar(entity)}
-            except: continue
-        wb.close(); print(f"Companies indexed: {len(COMPANY_LIST)}")
-    except Exception as e: print(f"Companies index error: {e}")
+        wb=openpyxl.load_workbook(COMPANIES_FILE_2026,read_only=True,data_only=True)
+        if "خاص" in wb.sheetnames:
+            ws=wb["خاص"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or not r[0] or not r[1]: continue
+                    if str(r[0]).lower()=="registrationnumber": continue
+                    _add_company(r[1], "", r[0], f"خاص - {clean_cell(r[3])}", "", clean_cell(r[5]), f"تاريخ التسجيل: {clean_cell(r[4])}")
+                except: continue
+        if "حكومي" in wb.sheetnames:
+            ws=wb["حكومي"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or not r[1] or not r[2]: continue
+                    if str(r[1]).lower()=="رقم الجهة": continue
+                    if str(r[0])=="قطاع حكومي": continue
+                    _add_company(r[2], "", r[1], "حكومي", "", "", clean_cell(r[3]))
+                except: continue
+        if "فرع اجنبي" in wb.sheetnames:
+            ws=wb["فرع اجنبي"]
+            for r in ws.iter_rows(values_only=True):
+                try:
+                    if not r or not r[1] or not r[2]: continue
+                    if str(r[1]).lower()=="رقم التسجيل": continue
+                    _add_company(r[2], "", r[1], "فرع اجنبي", "", "", clean_cell(r[3]))
+                except: continue
+        wb.close(); print(f"Companies TOTAL after 2026 merge: {len(COMPANY_LIST)}")
+    except Exception as e: print(f"Companies 2026 error: {e}")
 build_companies_index()
 def search_company(q):
     qq=(q or "").strip()
@@ -545,13 +574,14 @@ HELP_TEXT="""❓ مساعدة / Help
 🕘 اخر بحث - اكتب: اخر
 🏠 القايمة - اكتب: /menu
 
-🏢 البحث عن الشركات بكل الطرق:
+🏢 البحث عن الشركات بكل الطرق - القديم + 2026:
 - بالاسم: شركة مصر / مصر لتصدير الاقطان / جملة ماركت
 - برقم التسجيل: 202444732
 - برقم الملف: 5555000041150000
 - بالنشاط: تجاره السيارات / تجاره الاخشاب
 - بالعنوان: اسكندريه / برج العرب
-- بالكيان: شركات مساهمه"""
+- بالكيان: شركات مساهمه / خاص / حكومي / فرع اجنبي
+- مأمورية: مركز كبار الممولين"""
 def load_users():
     if not os.path.exists(USERS_FILE): return {}
     try:
@@ -838,205 +868,4 @@ async def companies_command(update: Update,context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.from_user.id)!=str(ADMIN_ID):
         if uid not in users or users[uid].get("status")!="accepted": await update.message.reply_text("Please send /start first."); return
     if not context.args: await send_company_list(update,context,0,""); return
-    q=" ".join(context.args); add_recent(context,q); await send_company_list(update,context,0,q); return
-async def tariff_command(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    users=load_users(); uid=str(update.message.from_user.id)
-    if str(update.message.from_user.id)!=str(ADMIN_ID):
-        if uid not in users or users[uid].get("status")!="accepted": await update.message.reply_text("Please send /start first."); return
-    if not context.args: await send_tariff_list(update,context,0,""); return
-    q=" ".join(context.args); add_recent(context,q); await send_tariff_list(update,context,0,q); return
-async def ref_command(update: Update,context: ContextTypes.DEFAULT_TYPE,kind,label,example):
-    users=load_users(); uid=str(update.message.from_user.id)
-    if str(update.message.from_user.id)!=str(ADMIN_ID):
-        if uid not in users or users[uid].get("status")!="accepted": await update.message.reply_text("Please send /start first."); return
-    if not context.args: await send_ref_list(update,context,kind,0,""); return
-    query=" ".join(context.args); add_recent(context,query); await send_ref_list(update,context,kind,0,query); return
-async def cities_command(update: Update,context: ContextTypes.DEFAULT_TYPE): await ref_command(update,context,"cities","مدينة","/cities Cairo")
-async def country_command(update: Update,context: ContextTypes.DEFAULT_TYPE): await ref_command(update,context,"country","دولة","/country Egypt")
-async def currency_command(update: Update,context: ContextTypes.DEFAULT_TYPE): await ref_command(update,context,"currency","عملة","/currency USD")
-async def package_command(update: Update,context: ContextTypes.DEFAULT_TYPE): await ref_command(update,context,"package","عبوة","/package Box")
-async def uom_command(update: Update,context: ContextTypes.DEFAULT_TYPE): await ref_command(update,context,"uom","وحدة قياس","/uom KGM")
-async def lines_command(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    users=load_users(); uid=str(update.message.from_user.id)
-    if str(update.message.from_user.id)!=str(ADMIN_ID):
-        if uid not in users or users[uid].get("status")!="accepted": await update.message.reply_text("Please send /start first."); return
-    if not context.args: await send_line_list(update,context,0,""); return
-    q=" ".join(context.args); add_recent(context,q); k=resolve_line(q)
-    if k: hit_line(k); await update.message.reply_text(format_line_contacts(k),reply_markup=line_category_keyboard(k)); return
-    sug=suggest_line(q)
-    if sug: await update.message.reply_text(f"قصدك {LINE_NAMES.get(sug,sug)}؟\nاكتب: توكيل {LINE_NAMES.get(sug,sug)}"); return
-    await send_line_list(update,context,0,q); return
-async def line_command(update: Update,context: ContextTypes.DEFAULT_TYPE): await lines_command(update,context)
-async def rotation_command(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    users=load_users(); uid=str(update.message.from_user.id)
-    if str(update.message.from_user.id)!=str(ADMIN_ID):
-        if uid not in users or users[uid].get("status")!="accepted": await update.message.reply_text("Please send /start first."); return
-    if len(context.args)<2: await update.message.reply_text("اكتب: /rotation Alex Izmir\nاو: Alex Izmir"); return
-    pol=context.args[0]; pod=" ".join(context.args[1:]); hit_port(f"{pol}->{pod}"); add_recent(context,f"{pol} {pod}"); res=search_rotation(pol,pod); await update.message.reply_text(format_rotation(res,pol,pod))
-async def handle_message(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    user=update.message.from_user; uid=str(user.id); text=update.message.text or ""
-    if is_download_request(text): return await download_doc(update,context)
-    if text.strip().lower().startswith("تعديل") and str(user.id)==str(ADMIN_ID):
-        body=text.strip().split(" ",1)[1] if " " in text.strip() else ""; parts=[p.strip() for p in body.split("|")]
-        if len(parts)>=2:
-            line_key=resolve_line(parts[0]) or parts[0].upper(); new_c={"line":line_key,"name":parts[1] if len(parts)>1 else "","position":"","email":parts[2] if len(parts)>2 else "","number":parts[3] if len(parts)>3 else "","booking":"","final":"","vgm":"","draft":"","invoice":"","pickup":""}
-            ov={}
-            if os.path.exists(OVERRIDE_FILE):
-                try:
-                    with open(OVERRIDE_FILE,"r",encoding="utf-8") as f: ov=json.load(f)
-                except: ov={}
-            if line_key not in ov: ov[line_key]=[]
-            ov[line_key].append(new_c)
-            with open(OVERRIDE_FILE,"w",encoding="utf-8") as f: json.dump(ov,f,ensure_ascii=False,indent=2)
-            if line_key not in LINE_NAMES: LINE_NAMES[line_key]=line_key
-            if line_key not in LINE_CONTACTS: LINE_CONTACTS[line_key]=[]
-            LINE_CONTACTS[line_key].append(new_c); await update.message.reply_text(f"✅ اتضاف لـ {line_key}\n👤 {new_c['name']} - {new_c['email']} - {new_c['number']}"); return
-        await update.message.reply_text("اكتب: تعديل MAERSK | الاسم | الايميل | الرقم"); return
-    bare=text.strip().lstrip("/").strip().lower()
-    if bare in ["اخر","recent","اخر بحث"]:
-        lst=context.user_data.get("recent",[])
-        await update.message.reply_text("🕘 اخر 5:\n"+"\n".join([f"• {x}" for x in lst]) if lst else "لسه مفيش بحث"); return
-    if bare in ["توكيلات","توكيل","lines","line","shipping lines","خطوط","خط"]: await send_line_list(update,context,0,""); return
-    if bare in ["شركات","شركه","شركة","companies","company","تسجيل","ارقام تسجيل الشركات"]: await send_company_list(update,context,0,""); return
-    if bare in ["تعريفة","تعريفه","tariff","hs","التعريفة","التعريفه","التعريفة الجمركية","التعريفه الجمركيه"]: await send_tariff_list(update,context,0,""); return
-    if bare in ["menu","القايمة","القايمه","menu_main","القائمة"]: await update.message.reply_text("🏠 القايمة الرئيسية:",reply_markup=main_menu_keyboard()); return
-    low=text.strip().lower()
-    for pref in ["شركة ","شركه ","شركات ","company ","companies ","نشاط ","عنوان ","كيان "]:
-        if low.startswith(pref) or low.startswith("/"+pref):
-            q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""
-            if q: add_recent(context,q); await send_company_list(update,context,0,q); return
-    for pref in ["تعريفة ","تعريفه ","التعريفة ","التعريفه ","tariff ","hs ","بند ","hscode ","hs code ","تعريفة:","تعريفه:"]:
-        if low.startswith(pref) or low.startswith("/"+pref):
-            q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""
-            if q: add_recent(context,q); await send_tariff_list(update,context,0,q); return
-    q_direct=text.strip()
-    if re.match(r'^[\d\.\s]+$',q_direct):
-        tres=search_tariff(q_direct)
-        if tres:
-            add_recent(context,text)
-            if len(tres)==1: await update.message.reply_text(format_tariff(tres[0])); return
-            await send_tariff_list(update,context,0,q_direct); return
-    else:
-        tres2=search_tariff(q_direct)
-        if tres2:
-            add_recent(context,text)
-            if len(tres2)==1: await update.message.reply_text(format_tariff(tres2[0])); return
-            await send_tariff_list(update,context,0,q_direct); return
-    parts_all=text.strip().split()
-    if len(parts_all)>=3:
-        k=resolve_line(parts_all[0])
-        if k:
-            pol=parts_all[1]; pod=" ".join(parts_all[2:]); hit_line(k); hit_port(f"{pol}->{pod}"); add_recent(context,text); res=search_rotation(pol,pod); await update.message.reply_text(format_line_contacts(k),reply_markup=line_category_keyboard(k)); await update.message.reply_text(format_rotation(res,pol,pod)); return
-    for pref in ["توكيل ","توكيلات ","line ","lines ","shipping "]:
-        if low.startswith(pref) or low.startswith("/"+pref):
-            q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""
-            if q:
-                add_recent(context,q); k=resolve_line(q)
-                if k: hit_line(k); await update.message.reply_text(format_line_contacts(k),reply_markup=line_category_keyboard(k)); return
-                sug=suggest_line(q)
-                if sug: await update.message.reply_text(f"قصدك {LINE_NAMES.get(sug,sug)}؟\nاكتب: توكيل {LINE_NAMES.get(sug,sug)}"); return
-                await send_line_list(update,context,0,q); return
-    for pref in ["rotation ","route ","rot "]:
-        if low.startswith(pref) or low.startswith("/"+pref):
-            parts=text.strip().lstrip("/").strip().split(" ")
-            if len(parts)>=3: pol=parts[1]; pod=" ".join(parts[2:]); hit_port(f"{pol}->{pod}"); add_recent(context,text); res=search_rotation(pol,pod); await update.message.reply_text(format_rotation(res,pol,pod)); return
-    k_single=resolve_line(text.strip())
-    if k_single: hit_line(k_single); add_recent(context,text); await update.message.reply_text(format_line_contacts(k_single),reply_markup=line_category_keyboard(k_single)); return
-    if len(text.strip().split())==1 and len(text.strip())>=3:
-        comp_single=search_company(text.strip())
-        if comp_single: add_recent(context,text); await send_company_list(update,context,0,text.strip()); return
-        sug=suggest_line(text.strip())
-        if sug: await update.message.reply_text(f"قصدك {LINE_NAMES.get(sug,sug)}؟\nاكتب: توكيل {LINE_NAMES.get(sug,sug)}"); return
-    parts=text.strip().split()
-    if len(parts)==2:
-        res=search_rotation(parts[0],parts[1])
-        if res: hit_port(f"{parts[0]}->{parts[1]}"); add_recent(context,text); await update.message.reply_text(format_rotation(res,parts[0],parts[1])); return
-    q_stripped=text.strip().lstrip("/").strip()
-    if q_stripped.isdigit() and len(q_stripped)>=9:
-        comp_res=search_company(q_stripped)
-        if comp_res:
-            add_recent(context,text)
-            if len(comp_res)==1: await update.message.reply_text(format_company(comp_res[0])); return
-            txt=f"🏢 لقيت {len(comp_res)} شركة:\n\n"
-            for c in comp_res: txt+=format_company(c)+"\n\n"
-            await update.message.reply_text(txt.strip()); return
-    bare_map={"country":"country","countries":"country","دولة":"country","دول":"country","cities":"cities","city":"cities","مدينة":"cities","مدن":"cities","currency":"currency","currencies":"currency","عملة":"currency","عملات":"currency","package":"package","packages":"package","packaging":"package","عبوة":"package","عبوات":"package","uom":"uom","unit":"uom","units":"uom","وحدة":"uom"}
-    if bare in bare_map: await send_ref_list(update,context,bare_map[bare],0,""); return
-    prefixes=[("cities ","cities"),("city ","cities"),("مدينة ","cities"),("country ","country"),("دولة ","country"),("currency ","currency"),("عملة ","currency"),("package ","package"),("عبوة ","package"),("packaging ","package"),("uom ","uom"),("unit ","uom")]
-    for pref,kind in prefixes:
-        if low.startswith(pref) or low.startswith("/"+pref):
-            q=text.strip().lstrip("/").strip().split(" ",1)[1] if " " in text.strip() else ""; add_recent(context,q); await send_ref_list(update,context,kind,0,q); return
-    comp_by_name=search_company(q_stripped)
-    if comp_by_name: add_recent(context,text); await send_company_list(update,context,0,q_stripped); return
-    q_single=text.strip().lstrip("/").strip()
-    if len(q_single)>=2:
-        ref_results=search_all_refs(q_single)
-        if ref_results:
-            txt=""
-            for kind,item in ref_results: txt+=format_ref(kind,item)+"\n\n"
-            await update.message.reply_text(txt.strip()); return
-    users=load_users()
-    if str(user.id)==str(ADMIN_ID):
-        if len(text.strip())>=3:
-            brick,_=search_gpc_fast(text)
-            if brick is not None:
-                if isinstance(brick,tuple) and brick[0]=="multiple":
-                    matches=brick[1]; context.user_data["gpc_matches"]=matches; context.bot_data[f"gpc_{user.id}"]=matches; keyboard=[[InlineKeyboardButton(m["brick_title"][:60],callback_data=f"gpc_{i}")] for i,m in enumerate(matches)]; await update.message.reply_text(f"لقيت {len(matches)} صنف قريب من: {text}\nاختار واحد:",reply_markup=InlineKeyboardMarkup(keyboard)); return
-                attrs=get_attrs_for_brick(brick["brick_title"]); await update.message.reply_text(format_brick(brick,attrs)); return
-        return
-    if uid not in users: await update.message.reply_text("Please send /start first.",reply_markup=main_menu_keyboard()); return
-    if users[uid].get("status")=="pending": await update.message.reply_text("Your request is still waiting for acceptance from Captain Emad."); return
-    if users[uid].get("status")=="rejected":
-        kb=InlineKeyboardMarkup([[InlineKeyboardButton("🔁 اطلب قبول تاني",callback_data="request_again")]]); await update.message.reply_text("Your request was rejected. Send /start again after 5 minutes.",reply_markup=kb); return
-    if len(text.strip())>=3:
-        brick,_=search_gpc_fast(text)
-        if brick is not None:
-            add_recent(context,text)
-            if isinstance(brick,tuple) and brick[0]=="multiple":
-                matches=brick[1]; context.user_data["gpc_matches"]=matches; context.bot_data[f"gpc_{user.id}"]=matches; keyboard=[[InlineKeyboardButton(m["brick_title"][:60],callback_data=f"gpc_{i}")] for i,m in enumerate(matches)]; await update.message.reply_text(f"لقيت {len(matches)} صنف قريب من: {text}\nاختار واحد:",reply_markup=InlineKeyboardMarkup(keyboard)); return
-            attrs=get_attrs_for_brick(brick["brick_title"]); await update.message.reply_text(format_brick(brick,attrs)); return
-    if ADMIN_ID: await context.bot.send_message(chat_id=int(ADMIN_ID),text=f"Inquiry from {users[uid]['code']} - {users[uid]['name']}:\n{update.message.text}")
-    await update.message.reply_text("Received. Captain Emad will reply to you.\n\nجرب القايمة دي، هتلاقي طلبك اسرع:",reply_markup=main_menu_keyboard())
-async def list_users(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    if str(update.message.from_user.id)!=str(ADMIN_ID): return
-    users=load_users()
-    if not users: await update.message.reply_text("No users yet."); return
-    text=f"Total Users: {len(users)}\n\n"
-    for u in users.values(): text+=f"Code: {u['code']} | Name: {u['name']} | @{u.get('username','')} | ID: {u['id']} | Status: {u['status']}\n"
-    await update.message.reply_text(text)
-async def delete_user(update: Update,context: ContextTypes.DEFAULT_TYPE):
-    if str(update.message.from_user.id)!=str(ADMIN_ID): return
-    if not context.args: await update.message.reply_text("Usage: /delete USR-1234  or  /delete <ID>"); return
-    target=context.args[0]; users=load_users(); found=None
-    for uid,u in list(users.items()):
-        if u.get("code")==target or uid==target: found=uid; break
-    if found: del users[found]; save_users(users); await update.message.reply_text(f"Deleted {target}")
-    else: await update.message.reply_text(f"Not found {target}")
-def main():
-    if not BOT_TOKEN: print("BOT_TOKEN missing"); return
-    app=ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start",start))
-    app.add_handler(CommandHandler("help",help_command))
-    app.add_handler(CommandHandler("menu",menu_command))
-    app.add_handler(CommandHandler("top",top_command))
-    app.add_handler(CommandHandler("gpc",gpc_search_command))
-    app.add_handler(CommandHandler("companies",companies_command))
-    app.add_handler(CommandHandler("company",companies_command))
-    app.add_handler(CommandHandler("tariff",tariff_command))
-    app.add_handler(CommandHandler("cities",cities_command))
-    app.add_handler(CommandHandler("country",country_command))
-    app.add_handler(CommandHandler("currency",currency_command))
-    app.add_handler(CommandHandler("package",package_command))
-    app.add_handler(CommandHandler("uom",uom_command))
-    app.add_handler(CommandHandler("lines",lines_command))
-    app.add_handler(CommandHandler("line",line_command))
-    app.add_handler(CommandHandler("rotation",rotation_command))
-    app.add_handler(CommandHandler("docs",list_docs))
-    app.add_handler(CommandHandler("users",list_users))
-    app.add_handler(CommandHandler("delete",delete_user))
-    app.add_handler(CallbackQueryHandler(button_click))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL,save_doc))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
-    print("Bot running...")
-    app.run_polling()
-if __name__=="__main__": main()
+    q="
