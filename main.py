@@ -80,7 +80,8 @@ for fn in ['gs1xlsx.xlsx']:
     for r in ws.iter_rows(values_only=True):
         if not r:
             continue
-        r = list(r) + [''] * 15
+        r = list(r)
+        r += [''] * 15
         r = tuple(r)
         bt = str(GV(r, 10) or '')
         if not bt:
@@ -168,7 +169,8 @@ if os.path.exists(F2):
         for r in wb['خاص'].iter_rows(values_only=True):
             if not r or not GV(r, 0) or not GV(r, 1):
                 continue
-            e = 'خاص - ' + CC(GV(r, 3))
+            e = 'خاص - '
+            e += CC(GV(r, 3))
             AC(GV(r, 1), '', GV(r, 0), e, '', CC(GV(r, 5)), CC(GV(r, 4)), 'private')
     if 'حكومي' in wb.sheetnames:
         for r in wb['حكومي'].iter_rows(values_only=True):
@@ -182,16 +184,27 @@ if os.path.exists(F2):
             AC(GV(r, 2), '', GV(r, 1), 'فرع اجنبي', '', '', CC(GV(r, 3)), 'foreign')
     wb.close()
 def FC(c):
-    t = c['name'] + '\n'
-    t = t + 'رقم التسجيل: ' + c['reg'] + '\n'
+    t = c['name']
+    t += '\n'
+    t += 'رقم التسجيل: '
+    t += c['reg']
+    t += '\n'
     if c['file']:
-        t = t + 'رقم الملف: ' + c['file'] + '\n'
+        t += 'رقم الملف: '
+        t += c['file']
+        t += '\n'
     if c['ent']:
-        t = t + 'الكيان: ' + c['ent'] + '\n'
+        t += 'الكيان: '
+        t += c['ent']
+        t += '\n'
     if c['act']:
-        t = t + 'النشاط: ' + c['act'] + '\n'
+        t += 'النشاط: '
+        t += c['act']
+        t += '\n'
     if c['ad']:
-        t = t + 'العنوان: ' + c['ad'] + '\n'
+        t += 'العنوان: '
+        t += c['ad']
+        t += '\n'
     return t.strip()
 def GC(q, ct):
     out = [c for c in CL if not ct or c['ct'] == ct]
@@ -256,5 +269,95 @@ def ST(q):
                 break
     return out
 def FT(t):
-    x = t['desc'] + '\n'
-    x = x + 'البند: ' +
+    x = t['desc']
+    x += '\n'
+    x += 'البند: '
+    x += t['code']
+    x += '\n'
+    x += 'الضريبة: '
+    x += t['tax']
+    return x.strip()
+LC = {}
+LN = {}
+ROT = []
+F3 = 'ايميلات_وارقام_توكيلات.xlsx'
+if os.path.exists(F3):
+    wb = openpyxl.load_workbook(F3, read_only=True)
+    if 'EMAILS' in wb.sheetnames:
+        cur = ''
+        rows = list(wb['EMAILS'].iter_rows(values_only=True))
+        for r in rows[2:]:
+            if not r:
+                continue
+            if GV(r, 0):
+                cur = str(GV(r, 0)).split('\n')[0].strip()
+            if not cur:
+                continue
+            k = cur.upper()
+            if k not in LN:
+                LN[k] = cur
+            nm = CC(GV(r, 1))
+            po = CC(GV(r, 2))
+            em = CC(GV(r, 3))
+            nu = CC(GV(r, 4))
+            bk = CC(GV(r, 5))
+            inv = CC(GV(r, 9))
+            if not nm and not em and not nu:
+                continue
+            if k not in LC:
+                LC[k] = []
+            d = {}
+            d['name'] = nm
+            d['pos'] = po
+            d['email'] = em
+            d['num'] = nu
+            d['book'] = bk
+            d['inv'] = inv
+            LC[k].append(d)
+    if 'SERVICE ROTATION' in wb.sheetnames:
+        for r in wb['SERVICE ROTATION'].iter_rows(values_only=True):
+            if not r:
+                continue
+            pol = CC(GV(r, 0))
+            pod = CC(GV(r, 1))
+            if not pol or not pod:
+                continue
+            d = {}
+            d['pol'] = pol
+            d['pod'] = pod
+            d['line'] = CC(GV(r, 2))
+            d['tt'] = CC(GV(r, 3))
+            d['co'] = CC(GV(r, 4))
+            ROT.append(d)
+    wb.close()
+AM = {}
+AM['ميرسك'] = 'MAERSK'
+AM['هاباج'] = 'HAPAG'
+AM['كوسكو'] = 'COSCO'
+AM['ايفرجرين'] = 'EVERGREEN'
+AM['ام اس سي'] = 'MSC'
+AM['زيم'] = 'ZIM'
+AM['اركاس'] = 'ARKAS'
+AM['وان'] = 'ONE'
+def RL(q):
+    q = (q or '').strip()
+    if not q:
+        return None
+    if q.upper() in LC:
+        return q.upper()
+    if q.lower() in AM:
+        return AM[q.lower()]
+    ql = q.lower()
+    for k in LN:
+        if ql in k.lower():
+            return k
+    return None
+def FL(k, cat):
+    cs = LC.get(k, [])
+    dp = LN.get(k, k)
+    if not cs:
+        return 'ملقيتش: ' + dp
+    t = dp
+    t += '\n'
+    if cat == 'BK':
+        t
