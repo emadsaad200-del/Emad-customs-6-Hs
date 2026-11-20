@@ -13,66 +13,66 @@ from telegram.ext import MessageHandler
 from telegram.ext import CallbackQueryHandler
 from telegram.ext import ContextTypes
 from telegram.ext import filters
-BOT = os.getenv('BOT_TOKEN')
-ADM = os.getenv('ADMIN_ID')
+BOT = os.getenv("BOT_TOKEN")
+ADM = os.getenv("ADMIN_ID")
 SL = chr(47)
-os.makedirs('docs', exist_ok=True)
+os.makedirs("docs", exist_ok=True)
 def LJ(f, d):
     try:
-        return json.load(open(f, encoding='utf-8'))
+        return json.load(open(f, encoding="utf-8"))
     except:
         return d
 def SJ(f, d):
-    json.dump(d, open(f, 'w', encoding='utf-8'))
+    json.dump(d, open(f, "w", encoding="utf-8"))
 def CC(v):
     if v is None:
-        return ''
+        return ""
     return str(v).strip()
 def GV(r, i):
     if r is None:
-        return ''
+        return ""
     if len(r) <= i:
-        return ''
+        return ""
     if r[i] is None:
-        return ''
+        return ""
     return r[i]
 def NA(s):
-    s = str(s or '').strip().lower()
-    s = s.replace('أ', 'ا')
-    s = s.replace('إ', 'ا')
-    s = s.replace('آ', 'ا')
-    s = s.replace('ة', 'ه')
-    s = s.replace('ى', 'ي')
+    s = str(s or "").strip().lower()
+    s = s.replace("أ", "ا")
+    s = s.replace("إ", "ا")
+    s = s.replace("آ", "ا")
+    s = s.replace("ة", "ه")
+    s = s.replace("ى", "ي")
     return s
 def B(t, d):
     return InlineKeyboardButton(t, callback_data=d)
 def MK(r):
     return InlineKeyboardMarkup(r)
 def MAIN_KB():
-    r1 = [B('توكيلات', 'm_lines'), B('GPC', 'm_gpc')]
-    r2 = [B('التعريفة', 'm_tariff'), B('مستندات', 'm_docs')]
-    r3 = [B('Rotation', 'm_rot'), B('شركات', 'm_comp')]
-    r4 = [B('Country', 'm_country'), B('Cities', 'm_cities')]
-    r5 = [B('Currency', 'm_cur'), B('Package', 'm_pack')]
-    r6 = [B('UOM', 'm_uom'), B('اخر بحث', 'm_recent')]
-    r7 = [B('مساعدة', 'm_help')]
+    r1 = [B("توكيلات", "m_lines"), B("GPC", "m_gpc")]
+    r2 = [B("التعريفة", "m_tariff"), B("مستندات", "m_docs")]
+    r3 = [B("Rotation", "m_rot"), B("شركات", "m_comp")]
+    r4 = [B("Country", "m_country"), B("Cities", "m_cities")]
+    r5 = [B("Currency", "m_cur"), B("Package", "m_pack")]
+    r6 = [B("UOM", "m_uom"), B("اخر بحث", "m_recent")]
+    r7 = [B("مساعدة", "m_help")]
     return MK([r1, r2, r3, r4, r5, r6, r7])
 def COMP_KB():
-    r1 = [B('الخاصة', 'ct_pri')]
-    r2 = [B('الحكومية', 'ct_gov')]
-    r3 = [B('الاجنبية', 'ct_for')]
-    r4 = [B('القايمة', 'm_main')]
+    r1 = [B("الخاصة", "ct_pri")]
+    r2 = [B("الحكومية", "ct_gov")]
+    r3 = [B("الاجنبية", "ct_for")]
+    r4 = [B("القايمة", "m_main")]
     return MK([r1, r2, r3, r4])
 def LCAT_KB(k):
-    r1 = [B('Booking', 'lc_' + k + '_BK')]
-    r1.append(B('Invoice', 'lc_' + k + '_IN'))
-    r2 = [B('الايميلات', 'lc_' + k + '_AL')]
-    r3 = [B('القايمة', 'm_main')]
+    r1 = [B("Booking", "lc_" + k + "_BK")]
+    r1.append(B("Invoice", "lc_" + k + "_IN"))
+    r2 = [B("الايميلات", "lc_" + k + "_AL")]
+    r3 = [B("القايمة", "m_main")]
     return MK([r1, r2, r3])
 BI = {}
 BC = {}
 BA = {}
-for fn in ['gs1xlsx.xlsx']:
+for fn in ["gs1xlsx.xlsx"]:
     if not os.path.exists(fn):
         continue
     wb = openpyxl.load_workbook(fn, read_only=True)
@@ -80,47 +80,48 @@ for fn in ['gs1xlsx.xlsx']:
     for r in ws.iter_rows(values_only=True):
         if not r:
             continue
-        r = list(r) + [''] * 15
+        r = list(r)
+        r += [""] * 15
         r = tuple(r)
-        bt = str(GV(r, 10) or '')
+        bt = str(GV(r, 10) or "")
         if not bt:
             continue
         k = bt.strip().lower()
         if k not in BI:
             d = {}
-            d['c'] = str(GV(r, 9) or '')
-            d['t'] = bt
-            d['s'] = GV(r, 1)
-            d['f'] = GV(r, 4)
-            d['cl'] = GV(r, 7)
-            d['i'] = GV(r, 11) or ''
-            d['e'] = GV(r, 12) or ''
+            d["c"] = str(GV(r, 9) or "")
+            d["t"] = bt
+            d["s"] = GV(r, 1)
+            d["f"] = GV(r, 4)
+            d["cl"] = GV(r, 7)
+            d["i"] = GV(r, 11) or ""
+            d["e"] = GV(r, 12) or ""
             BI[k] = d
-            BC[d['c']] = k
-        if GV(r, 13) != '':
+            BC[d["c"]] = k
+        if GV(r, 13) != "":
             ac = str(GV(r, 13))
             if k not in BA:
                 BA[k] = []
             ex = None
             for a in BA[k]:
-                if a['c'] == ac:
+                if a["c"] == ac:
                     ex = a
             if ex is None:
-                ex = {'c': ac, 't': GV(r, 14), 'v': []}
+                ex = {"c": ac, "t": GV(r, 14), "v": []}
                 BA[k].append(ex)
     wb.close()
 REF = {}
-for kind in ['cities', 'country', 'currency', 'package', 'uom']:
+for kind in ["cities", "country", "currency", "package", "uom"]:
     REF[kind] = {}
-if os.path.exists('cities.xlsx'):
-    wb = openpyxl.load_workbook('cities.xlsx', read_only=True)
-    for kind, sh in [('cities', 'City List'), ('country', 'Country List'), ('currency', 'Currency List'), ('package', 'Package Type list'), ('uom', 'UOM List')]:
+if os.path.exists("cities.xlsx"):
+    wb = openpyxl.load_workbook("cities.xlsx", read_only=True)
+    for kind, sh in [("cities", "City List"), ("country", "Country List"), ("currency", "Currency List"), ("package", "Package Type list"), ("uom", "UOM List")]:
         if sh not in wb.sheetnames:
             continue
         for r in wb[sh].iter_rows(values_only=True):
             if not r or not GV(r, 0) or not GV(r, 1):
                 continue
-            if kind == 'currency':
+            if kind == "currency":
                 c = str(GV(r, 1)).strip().upper()
                 n = str(GV(r, 0)).strip()
             else:
@@ -128,91 +129,103 @@ if os.path.exists('cities.xlsx'):
                 n = str(GV(r, 1)).strip()
             if c in REF[kind]:
                 continue
-            REF[kind][c] = {'code': c, 'name': n}
+            REF[kind][c] = {"code": c, "name": n}
     wb.close()
 CL = []
 CBR = {}
 def AC(n, f, rg, en, ac, st, ad, ct):
     n = CC(n)
-    rg = CC(rg).replace(' ', '')
+    rg = CC(rg).replace(" ", "")
     if not n or not rg:
         return
     if rg in CBR:
         return
     it = {}
-    it['name'] = n
-    it['file'] = CC(f)
-    it['reg'] = rg
-    it['ent'] = CC(en)
-    it['act'] = CC(ac)
-    it['st'] = CC(st)
-    it['ad'] = CC(ad)
-    it['ct'] = ct
+    it["name"] = n
+    it["file"] = CC(f)
+    it["reg"] = rg
+    it["ent"] = CC(en)
+    it["act"] = CC(ac)
+    it["st"] = CC(st)
+    it["ad"] = CC(ad)
+    it["ct"] = ct
     CL.append(it)
     CBR[rg] = it
-F1 = 'ارقام_تسجيل_الشركات_111111.xlsx'
+F1 = "ارقام_تسجيل_الشركات_111111.xlsx"
 if os.path.exists(F1):
     wb = openpyxl.load_workbook(F1, read_only=True)
     ws = wb[wb.sheetnames[0]]
     for r in ws.iter_rows(values_only=True):
         if not r or not GV(r, 0):
             continue
-        if 'الاسم' in str(GV(r, 0)):
+        if "الاسم" in str(GV(r, 0)):
             continue
-        AC(GV(r, 0), CC(GV(r, 1)), CC(GV(r, 2)), CC(GV(r, 3)), CC(GV(r, 4)), CC(GV(r, 5)), CC(GV(r, 6)), 'private')
+        AC(GV(r, 0), CC(GV(r, 1)), CC(GV(r, 2)), CC(GV(r, 3)), CC(GV(r, 4)), CC(GV(r, 5)), CC(GV(r, 6)), "private")
     wb.close()
-F2 = 'ارقام_تسجيل_الشركات_2026.xlsx'
+F2 = "ارقام_تسجيل_الشركات_2026.xlsx"
 if os.path.exists(F2):
     wb = openpyxl.load_workbook(F2, read_only=True)
-    if 'خاص' in wb.sheetnames:
-        for r in wb['خاص'].iter_rows(values_only=True):
+    if "خاص" in wb.sheetnames:
+        for r in wb["خاص"].iter_rows(values_only=True):
             if not r or not GV(r, 0) or not GV(r, 1):
                 continue
-            e = 'خاص - ' + CC(GV(r, 3))
-            AC(GV(r, 1), '', GV(r, 0), e, '', CC(GV(r, 5)), CC(GV(r, 4)), 'private')
-    if 'حكومي' in wb.sheetnames:
-        for r in wb['حكومي'].iter_rows(values_only=True):
+            e = "خاص - "
+            e += CC(GV(r, 3))
+            AC(GV(r, 1), "", GV(r, 0), e, "", CC(GV(r, 5)), CC(GV(r, 4)), "private")
+    if "حكومي" in wb.sheetnames:
+        for r in wb["حكومي"].iter_rows(values_only=True):
             if not r or not GV(r, 1) or not GV(r, 2):
                 continue
-            AC(GV(r, 2), '', GV(r, 1), 'حكومي', '', '', CC(GV(r, 3)), 'gov')
-    if 'فرع اجنبي' in wb.sheetnames:
-        for r in wb['فرع اجنبي'].iter_rows(values_only=True):
+            AC(GV(r, 2), "", GV(r, 1), "حكومي", "", "", CC(GV(r, 3)), "gov")
+    if "فرع اجنبي" in wb.sheetnames:
+        for r in wb["فرع اجنبي"].iter_rows(values_only=True):
             if not r or not GV(r, 1) or not GV(r, 2):
                 continue
-            AC(GV(r, 2), '', GV(r, 1), 'فرع اجنبي', '', '', CC(GV(r, 3)), 'foreign')
+            AC(GV(r, 2), "", GV(r, 1), "فرع اجنبي", "", "", CC(GV(r, 3)), "foreign")
     wb.close()
 def FC(c):
-    t = c['name'] + '\n'
-    t = t + 'رقم التسجيل: ' + c['reg'] + '\n'
-    if c['file']:
-        t = t + 'رقم الملف: ' + c['file'] + '\n'
-    if c['ent']:
-        t = t + 'الكيان: ' + c['ent'] + '\n'
-    if c['act']:
-        t = t + 'النشاط: ' + c['act'] + '\n'
-    if c['ad']:
-        t = t + 'العنوان: ' + c['ad'] + '\n'
+    t = c["name"]
+    t += "\n"
+    t += "رقم التسجيل: "
+    t += c["reg"]
+    t += "\n"
+    if c["file"]:
+        t += "رقم الملف: "
+        t += c["file"]
+        t += "\n"
+    if c["ent"]:
+        t += "الكيان: "
+        t += c["ent"]
+        t += "\n"
+    if c["act"]:
+        t += "النشاط: "
+        t += c["act"]
+        t += "\n"
+    if c["ad"]:
+        t += "العنوان: "
+        t += c["ad"]
+        t += "\n"
     return t.strip()
 def GC(q, ct):
-    out = [c for c in CL if not ct or c['ct'] == ct]
+    out = [c for c in CL if not ct or c["ct"] == ct]
     nq = NA(q)
     if not nq:
         return out
     o = []
     for c in out:
-        if nq in NA(c['name']):
+        if nq in NA(c["name"]):
             o.append(c)
-        elif nq in NA(c['act']):
+        elif nq in NA(c["act"]):
             o.append(c)
     return o
 TL = []
 TB = {}
 def NTC(s):
-    s = str(s or '').strip().replace(' ', '')
-    if re.match(r'^\d{6}$', s):
-        s = s[:4] + '.' + s[4:]
-    if re.match(r'^\d{8}$', s):
-        s = s[:4] + '.' + s[4:6] + '.' + s[6:]
+    s = str(s or "").strip().replace(" ", "")
+    if re.match(r"^\d{6}$", s):
+        s = s[:4] + "." + s[4:]
+    if re.match(r"^\d{8}$", s):
+        s = s[:4] + "." + s[4:6] + "." + s[6:]
     return s
 def load_tar(fn):
     wb = openpyxl.load_workbook(fn, read_only=True)
@@ -227,21 +240,21 @@ def load_tar(fn):
         if code in TB:
             continue
         it = {}
-        it['code'] = code
-        it['desc'] = desc
-        it['tax'] = CC(GV(r, 2))
+        it["code"] = code
+        it["desc"] = desc
+        it["tax"] = CC(GV(r, 2))
         TB[code] = it
         TL.append(it)
     wb.close()
-if os.path.isdir('tarifa'):
-    for f in sorted(os.listdir('tarifa')):
-        if f.lower().endswith('.xlsx'):
-            load_tar(os.path.join('tarifa', f))
-for fn in ['30285-1.xlsx', '70490-2.xlsx']:
+if os.path.isdir("tarifa"):
+    for f in sorted(os.listdir("tarifa")):
+        if f.lower().endswith(".xlsx"):
+            load_tar(os.path.join("tarifa", f))
+for fn in ["30285-1.xlsx", "70490-2.xlsx"]:
     if os.path.exists(fn):
         load_tar(fn)
 def ST(q):
-    q = (q or '').strip()
+    q = (q or "").strip()
     if not q:
         return []
     cq = NTC(q)
@@ -250,27 +263,34 @@ def ST(q):
     nq = NA(q)
     out = []
     for t in TL:
-        if nq in NA(t['desc']):
+        if nq in NA(t["desc"]):
             out.append(t)
             if len(out) >= 10:
                 break
     return out
 def FT(t):
-    return t['desc'] + '\nالبند: ' + t['code'] + '\nالضريبة: ' + t['tax']
+    x = t["desc"]
+    x += "\n"
+    x += "البند: "
+    x += t["code"]
+    x += "\n"
+    x += "الضريبة: "
+    x += t["tax"]
+    return x.strip()
 LC = {}
 LN = {}
 ROT = []
-F3 = 'ايميلات_وارقام_توكيلات.xlsx'
+F3 = "ايميلات_وارقام_توكيلات.xlsx"
 if os.path.exists(F3):
     wb = openpyxl.load_workbook(F3, read_only=True)
-    if 'EMAILS' in wb.sheetnames:
-        cur = ''
-        rows = list(wb['EMAILS'].iter_rows(values_only=True))
+    if "EMAILS" in wb.sheetnames:
+        cur = ""
+        rows = list(wb["EMAILS"].iter_rows(values_only=True))
         for r in rows[2:]:
             if not r:
                 continue
             if GV(r, 0):
-                cur = str(GV(r, 0)).split('\n')[0].strip()
+                cur = str(GV(r, 0)).split("\n")[0].strip()
             if not cur:
                 continue
             k = cur.upper()
@@ -287,15 +307,15 @@ if os.path.exists(F3):
             if k not in LC:
                 LC[k] = []
             d = {}
-            d['name'] = nm
-            d['pos'] = po
-            d['email'] = em
-            d['num'] = nu
-            d['book'] = bk
-            d['inv'] = inv
+            d["name"] = nm
+            d["pos"] = po
+            d["email"] = em
+            d["num"] = nu
+            d["book"] = bk
+            d["inv"] = inv
             LC[k].append(d)
-    if 'SERVICE ROTATION' in wb.sheetnames:
-        for r in wb['SERVICE ROTATION'].iter_rows(values_only=True):
+    if "SERVICE ROTATION" in wb.sheetnames:
+        for r in wb["SERVICE ROTATION"].iter_rows(values_only=True):
             if not r:
                 continue
             pol = CC(GV(r, 0))
@@ -303,24 +323,24 @@ if os.path.exists(F3):
             if not pol or not pod:
                 continue
             d = {}
-            d['pol'] = pol
-            d['pod'] = pod
-            d['line'] = CC(GV(r, 2))
-            d['tt'] = CC(GV(r, 3))
-            d['co'] = CC(GV(r, 4))
+            d["pol"] = pol
+            d["pod"] = pod
+            d["line"] = CC(GV(r, 2))
+            d["tt"] = CC(GV(r, 3))
+            d["co"] = CC(GV(r, 4))
             ROT.append(d)
     wb.close()
 AM = {}
-AM['ميرسك'] = 'MAERSK'
-AM['هاباج'] = 'HAPAG'
-AM['كوسكو'] = 'COSCO'
-AM['ايفرجرين'] = 'EVERGREEN'
-AM['ام اس سي'] = 'MSC'
-AM['زيم'] = 'ZIM'
-AM['اركاس'] = 'ARKAS'
-AM['وان'] = 'ONE'
+AM["ميرسك"] = "MAERSK"
+AM["هاباج"] = "HAPAG"
+AM["كوسكو"] = "COSCO"
+AM["ايفرجرين"] = "EVERGREEN"
+AM["ام اس سي"] = "MSC"
+AM["زيم"] = "ZIM"
+AM["اركاس"] = "ARKAS"
+AM["وان"] = "ONE"
 def RL(q):
-    q = (q or '').strip()
+    q = (q or "").strip()
     if not q:
         return None
     if q.upper() in LC:
@@ -336,90 +356,143 @@ def FL(k, cat):
     cs = LC.get(k, [])
     dp = LN.get(k, k)
     if not cs:
-        return 'ملقيتش: ' + dp
-    t = dp + '\n'
-    if cat == 'BK':
-        t = t + 'Booking:\n'
+        t = "ملقيتش: "
+        t += dp
+        return t
+    t = dp
+    t += "\n"
+    if cat == "BK":
+        t += "Booking:\n"
         for x in cs:
-            t = t + x['name'] + ' - ' + x['email'] + '\n'
-            t = t + x['book'] + '\n'
+            t += x["name"]
+            t += " - "
+            t += x["email"]
+            t += "\n"
+            t += x["book"]
+            t += "\n"
         return t.strip()
-    if cat == 'IN':
-        t = t + 'Invoice:\n'
+    if cat == "IN":
+        t += "Invoice:\n"
         for x in cs:
-            if x['inv']:
-                t = t + x['name'] + ' - ' + x['email'] + '\n'
-                t = t + x['inv'] + '\n'
+            if x["inv"]:
+                t += x["name"]
+                t += " - "
+                t += x["email"]
+                t += "\n"
+                t += x["inv"]
+                t += "\n"
         return t.strip()
-    t = t + 'العدد: ' + str(len(cs)) + '\n\n'
+    t += "العدد: "
+    t += str(len(cs))
+    t += "\n\n"
     for c in cs[:10]:
-        if c['name']:
-            t = t + c['name'] + '\n'
-        if c['pos']:
-            t = t + c['pos'] + '\n'
-        if c['email']:
-            t = t + c['email'] + '\n'
-        if c['num']:
-            t = t + c['num'] + '\n'
-        if c['book']:
-            t = t + 'Booking: ' + c['book'] + '\n'
-        if c['inv']:
-            t = t + 'Invoice: ' + c['inv'] + '\n'
-        t = t + '\n'
+        if c["name"]:
+            t += c["name"]
+            t += "\n"
+        if c["pos"]:
+            t += c["pos"]
+            t += "\n"
+        if c["email"]:
+            t += c["email"]
+            t += "\n"
+        if c["num"]:
+            t += c["num"]
+            t += "\n"
+        if c["book"]:
+            t += "Booking: "
+            t += c["book"]
+            t += "\n"
+        if c["inv"]:
+            t += "Invoice: "
+            t += c["inv"]
+            t += "\n"
+        t += "\n"
     return t.strip()
 def SROT(pol, pod):
     out = []
     for r in ROT:
-        if pol.lower() in r['pol'].lower():
-            if pod.lower() in r['pod'].lower():
+        if pol.lower() in r["pol"].lower():
+            if pod.lower() in r["pod"].lower():
                 out.append(r)
     return out[:10]
 def FROT(rs, pol, pod):
     if not rs:
-        return 'ملقيتش خط من ' + pol + ' لـ ' + pod
-    t = 'من ' + pol + ' لـ ' + pod + ':\n\n'
+        t = "ملقيتش خط من "
+        t += pol
+        t += " لـ "
+        t += pod
+        return t
+    t = "من "
+    t += pol
+    t += " لـ "
+    t += pod
+    t += ":\n\n"
     for r in rs:
-        t = t + r['line'] + ' | ' + r['pol'] + ' -> ' + r['pod']
-        if r['tt']:
-            t = t + ' - ' + r['tt']
-        t = t + ' | ' + r['co'] + '\n'
+        t += r["line"]
+        t += " | "
+        t += r["pol"]
+        t += " -> "
+        t += r["pod"]
+        if r["tt"]:
+            t += " - "
+            t += r["tt"]
+        t += " | "
+        t += r["co"]
+        t += "\n"
     return t
-WEL = 'Welcome to Captain Emad Customs Bot'
-HELP = 'تعريفة: 0302.44 - توكيلات: MAERSK - خط: Alex Izmir - شركات: شركات - GPC: gpc Airbrushes - مستندات: تزيل 1 - القايمة: menu'
+WEL = "Welcome to Captain Emad Customs Bot"
+HELP = "تعريفة: 0302.44 - توكيلات: MAERSK - خط: Alex Izmir - شركات: شركات - GPC: gpc Airbrushes - مستندات: تزيل 1 - القايمة: menu"
 def LU():
-    return LJ('users.json', {})
+    return LJ("users.json", {})
 def SU(u):
-    SJ('users.json', u)
+    SJ("users.json", u)
 def OK(uid):
     if str(uid) == str(ADM):
         return True
     u = LU()
     if str(uid) not in u:
         return False
-    return u[str(uid)].get('status') == 'accepted'
+    return u[str(uid)].get("status") == "accepted"
 def FB(b):
-    t = b['t'] + '\n'
-    t = t + 'Brick: ' + b['c'] + '\n'
-    t = t + 'Segment: ' + str(b['s']) + '\n'
-    t = t + 'Family: ' + str(b['f']) + '\n'
-    t = t + 'Class: ' + str(b['cl']) + '\n'
-    if b['i']:
-        t = t + 'Includes: ' + str(b['i']) + '\n'
-    if b['e']:
-        t = t + 'Excludes: ' + str(b['e']) + '\n'
-    at = BA.get(b['t'].strip().lower(), [])
+    t = b["t"]
+    t += "\n"
+    t += "Brick: "
+    t += b["c"]
+    t += "\n"
+    t += "Segment: "
+    t += str(b["s"])
+    t += "\n"
+    t += "Family: "
+    t += str(b["f"])
+    t += "\n"
+    t += "Class: "
+    t += str(b["cl"])
+    t += "\n"
+    if b["i"]:
+        t += "Includes: "
+        t += str(b["i"])
+        t += "\n"
+    if b["e"]:
+        t += "Excludes: "
+        t += str(b["e"])
+        t += "\n"
+    at = BA.get(b["t"].strip().lower(), [])
     if at:
-        t = t + 'Attributes:\n'
+        t += "Attributes:\n"
         for a in at:
-            t = t + str(a['t']) + ' (' + str(a['c']) + ')\n'
-            if a['v']:
-                t = t + ', '.join(a['v'][:10]) + '\n'
+            t += str(a["t"])
+            t += " ("
+            t += str(a["c"])
+            t += ")\n"
+            if a["v"]:
+                t += ", ".join(a["v"][:10])
+                t += "\n"
     return t
 def SGPC(q):
-    qq = re.sub(r'\s+', ' ', (q or '').strip().lower())
+    qq = re.sub(r"\s+", " ", (q or "").strip().lower())
     if not qq:
         return None
-    dg = re.sub(r'\D', '', qq)
+    dg = re.sub(r"\D", "", qq)
     if dg and dg in BC:
         return BI[BC[dg]]
     if qq in BI:
@@ -428,7 +501,7 @@ def SGPC(q):
     if len(m) == 1:
         return m[0]
     if len(m) > 1:
-        return ('m', m[:10])
+        return ("m", m[:10])
     return None
 def PG(items, page, pre, lab):
     per = 10
@@ -436,45 +509,48 @@ def PG(items, page, pre, lab):
     tp = max(1, (len(items) + per - 1) // per)
     rows = []
     for i in range(st, min(st + per, len(items))):
-        cb = pre + 'sel_' + str(i)
+        cb = pre + "sel_" + str(i)
         rows.append([B(lab(items[i]), cb)])
     nav = []
     if page > 0:
-        nav.append(B('السابق', pre + 'page_' + str(page - 1)))
+        nav.append(B("السابق", pre + "page_" + str(page - 1)))
     if page < tp - 1:
-        nav.append(B('التالي', pre + 'page_' + str(page + 1)))
+        nav.append(B("التالي", pre + "page_" + str(page + 1)))
     if nav:
         rows.append(nav)
-    rows.append([B('القايمة', 'm_main')])
-    txt = 'اختار صفحة ' + str(page + 1) + ' من ' + str(tp)
+    rows.append([B("القايمة", "m_main")])
+    txt = "اختار صفحة "
+    txt += str(page + 1)
+    txt += " من "
+    txt += str(tp)
     return MK(rows), txt
 async def SEND(up, ctx, kind, page, q):
     if up.message:
         uid = up.message.from_user.id
     else:
         uid = up.callback_query.from_user.id
-    ctx.bot_data['fq'] = q
-    ctx.bot_data['fk'] = kind
-    if kind == 'comp':
-        ct = ctx.bot_data.get('ct', '')
+    ctx.bot_data["fq"] = q
+    ctx.bot_data["fk"] = kind
+    if kind == "comp":
+        ct = ctx.bot_data.get("ct", "")
         items = GC(q, ct)
-        kb, txt = PG(items, page, 'comp_', lambda c: c['name'][:40] + ' - ' + c['reg'])
-    elif kind == 'tariff':
+        kb, txt = PG(items, page, "comp_", lambda c: c["name"][:40] + " - " + c["reg"])
+    elif kind == "tariff":
         items = TL
         if q:
-            items = [t for t in TL if NA(q) in NA(t['desc']) or q in t['code']]
-        kb, txt = PG(items, page, 'tariff_', lambda t: t['code'] + ' - ' + t['desc'][:35])
-    elif kind == 'line':
+            items = [t for t in TL if NA(q) in NA(t["desc"]) or q in t["code"]]
+        kb, txt = PG(items, page, "tariff_", lambda t: t["code"] + " - " + t["desc"][:35])
+    elif kind == "line":
         items = sorted(LN.keys(), key=lambda x: LN[x])
         if q:
             items = [k for k in items if q.lower() in LN[k].lower()]
-        kb, txt = PG(items, page, 'line_', lambda k: LN[k][:40])
+        kb, txt = PG(items, page, "line_", lambda k: LN[k][:40])
     else:
-        items = sorted(REF[kind].values(), key=lambda x: x['code'])
+        items = sorted(REF[kind].values(), key=lambda x: x["code"])
         if q:
-            items = [x for x in items if q.lower() in x['name'].lower() or q.upper() in x['code']]
-        kb, txt = PG(items, page, 'ref_' + kind + '_', lambda x: x['name'][:35] + ' - ' + x['code'])
-    ctx.bot_data['lst'] = items
+            items = [x for x in items if q.lower() in x["name"].lower() or q.upper() in x["code"]]
+        kb, txt = PG(items, page, "ref_" + kind + "_", lambda x: x["name"][:35] + " - " + x["code"])
+    ctx.bot_data["lst"] = items
     if up.message:
         await up.message.reply_text(txt, reply_markup=kb)
     else:
@@ -487,30 +563,33 @@ async def START(update, ctx):
     u = LU()
     uid = str(us.id)
     now = time.time()
-    if uid in u and u[uid].get('status') == 'accepted':
+    if uid in u and u[uid].get("status") == "accepted":
         await update.message.reply_text(WEL, reply_markup=MAIN_KB())
         return
     if uid not in u:
-        code = 'USR-' + ''.join(random.choices('0123456789', k=4))
+        code = "USR-"
+        code += "".join(random.choices("0123456789", k=4))
         d = {}
-        d['code'] = code
-        d['name'] = us.first_name or ''
-        d['status'] = 'pending'
-        d['requested_at'] = now
+        d["code"] = code
+        d["name"] = us.first_name or ""
+        d["status"] = "pending"
+        d["requested_at"] = now
         u[uid] = d
         SU(u)
     else:
-        code = u[uid]['code']
-        u[uid]['status'] = 'pending'
+        code = u[uid]["code"]
+        u[uid]["status"] = "pending"
         SU(u)
-    msg = WEL + '\nCode: ' + code
+    msg = WEL
+    msg += "\nCode: "
+    msg += code
     await update.message.reply_text(msg, reply_markup=MAIN_KB())
     if ADM:
-        a = B('قبول', 'accept_' + uid)
-        b = B('رفض', 'reject_' + uid)
+        a = B("قبول", "accept_" + uid)
+        b = B("رفض", "reject_" + uid)
         kb = MK([[a, b]])
         try:
-            await ctx.bot.send_message(chat_id=int(ADM), text='New: ' + code, reply_markup=kb)
+            await ctx.bot.send_message(chat_id=int(ADM), text="New: " + code, reply_markup=kb)
         except:
             pass
 async def BTN(update, ctx):
@@ -521,243 +600,252 @@ async def BTN(update, ctx):
         pass
     d = q.data
     uid = q.from_user.id
-    if d == 'm_main':
-        await q.message.reply_text('القايمة:', reply_markup=MAIN_KB())
+    if d == "m_main":
+        await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
-    if d == 'm_lines':
-        await SEND(q, ctx, 'line', 0, '')
+    if d == "m_lines":
+        await SEND(q, ctx, "line", 0, "")
         return
-    if d == 'm_comp':
+    if d == "m_comp":
         kb = COMP_KB()
-        await q.message.reply_text('الشركات:', reply_markup=kb)
+        await q.message.reply_text("الشركات:", reply_markup=kb)
         return
-    if d == 'ct_pri':
-        ctx.bot_data['ct'] = 'private'
-        await SEND(q, ctx, 'comp', 0, '')
+    if d == "ct_pri":
+        ctx.bot_data["ct"] = "private"
+        await SEND(q, ctx, "comp", 0, "")
         return
-    if d == 'ct_gov':
-        ctx.bot_data['ct'] = 'gov'
-        await SEND(q, ctx, 'comp', 0, '')
+    if d == "ct_gov":
+        ctx.bot_data["ct"] = "gov"
+        await SEND(q, ctx, "comp", 0, "")
         return
-    if d == 'ct_for':
-        ctx.bot_data['ct'] = 'foreign'
-        await SEND(q, ctx, 'comp', 0, '')
+    if d == "ct_for":
+        ctx.bot_data["ct"] = "foreign"
+        await SEND(q, ctx, "comp", 0, "")
         return
-    if d == 'm_tariff':
-        await SEND(q, ctx, 'tariff', 0, '')
+    if d == "m_tariff":
+        await SEND(q, ctx, "tariff", 0, "")
         return
-    if d == 'm_gpc':
-        await q.message.reply_text('اكتب: gpc Airbrushes')
+    if d == "m_gpc":
+        await q.message.reply_text("اكتب: gpc Airbrushes")
         return
-    if d == 'm_rot':
-        await q.message.reply_text('اكتب: Alex Izmir')
+    if d == "m_rot":
+        await q.message.reply_text("اكتب: Alex Izmir")
         return
-    if d == 'm_country':
-        await SEND(q, ctx, 'country', 0, '')
+    if d == "m_country":
+        await SEND(q, ctx, "country", 0, "")
         return
-    if d == 'm_cities':
-        await SEND(q, ctx, 'cities', 0, '')
+    if d == "m_cities":
+        await SEND(q, ctx, "cities", 0, "")
         return
-    if d == 'm_cur':
-        await q.message.reply_text('اكتب: currency USD')
+    if d == "m_cur":
+        await q.message.reply_text("اكتب: currency USD")
         return
-    if d == 'm_pack':
-        await q.message.reply_text('اكتب: package Box')
+    if d == "m_pack":
+        await q.message.reply_text("اكتب: package Box")
         return
-    if d == 'm_uom':
-        await q.message.reply_text('اكتب: uom KG')
+    if d == "m_uom":
+        await q.message.reply_text("اكتب: uom KG")
         return
-    if d == 'm_help':
+    if d == "m_help":
         await q.message.reply_text(HELP, reply_markup=MAIN_KB())
         return
-    if d == 'm_recent':
-        lst = ctx.user_data.get('recent', [])
+    if d == "m_recent":
+        lst = ctx.user_data.get("recent", [])
         if not lst:
-            await q.message.reply_text('لسه مفيش بحث')
+            await q.message.reply_text("لسه مفيش بحث")
             return
-        t = 'اخر بحث:\n'
+        t = "اخر بحث:\n"
         for x in lst:
-            t = t + x + '\n'
+            t += x
+            t += "\n"
         await q.message.reply_text(t)
         return
-    if d == 'm_docs':
-        ds = LJ('docs_index.json', [])
+    if d == "m_docs":
+        ds = LJ("docs_index.json", [])
         if not ds:
-            await q.message.reply_text('مفيش مستندات')
+            await q.message.reply_text("مفيش مستندات")
             return
-        t = 'المستندات:\n'
+        t = "المستندات:\n"
         for x in ds:
-            t = t + str(x['num']) + ' - ' + x['name'] + '\n'
-        t = t + '\nاكتب: تزيل 1'
+            t += str(x["num"])
+            t += " - "
+            t += x["name"]
+            t += "\n"
+        t += "\nاكتب: تزيل 1"
         await q.message.reply_text(t)
         return
-    if d.startswith('comp_page_'):
-        p = int(d.split('_')[2])
-        await SEND(q, ctx, 'comp', p, ctx.bot_data.get('fq', ''))
+    if d.startswith("comp_page_"):
+        p = int(d.split("_")[2])
+        await SEND(q, ctx, "comp", p, ctx.bot_data.get("fq", ""))
         return
-    if d.startswith('comp_sel_'):
-        i = int(d.split('_')[2])
-        lst = ctx.bot_data.get('lst', [])
+    if d.startswith("comp_sel_"):
+        i = int(d.split("_")[2])
+        lst = ctx.bot_data.get("lst", [])
         if 0 <= i < len(lst):
             await q.message.reply_text(FC(lst[i]))
         return
-    if d.startswith('tariff_page_'):
-        p = int(d.split('_')[2])
-        await SEND(q, ctx, 'tariff', p, ctx.bot_data.get('fq', ''))
+    if d.startswith("tariff_page_"):
+        p = int(d.split("_")[2])
+        await SEND(q, ctx, "tariff", p, ctx.bot_data.get("fq", ""))
         return
-    if d.startswith('tariff_sel_'):
-        i = int(d.split('_')[2])
-        lst = ctx.bot_data.get('lst', [])
+    if d.startswith("tariff_sel_"):
+        i = int(d.split("_")[2])
+        lst = ctx.bot_data.get("lst", [])
         if 0 <= i < len(lst):
             await q.message.reply_text(FT(lst[i]))
         return
-    if d.startswith('line_page_'):
-        p = int(d.split('_')[2])
-        await SEND(q, ctx, 'line', p, ctx.bot_data.get('fq', ''))
+    if d.startswith("line_page_"):
+        p = int(d.split("_")[2])
+        await SEND(q, ctx, "line", p, ctx.bot_data.get("fq", ""))
         return
-    if d.startswith('line_sel_'):
-        i = int(d.split('_')[2])
-        lst = ctx.bot_data.get('lst', [])
+    if d.startswith("line_sel_"):
+        i = int(d.split("_")[2])
+        lst = ctx.bot_data.get("lst", [])
         if 0 <= i < len(lst):
             k = lst[i]
-            await q.message.reply_text(FL(k, 'ALL'), reply_markup=LCAT_KB(k))
+            await q.message.reply_text(FL(k, "ALL"), reply_markup=LCAT_KB(k))
         return
-    if d.startswith('ref_'):
-        ps = d.split('_')
+    if d.startswith("ref_"):
+        ps = d.split("_")
         kind = ps[1]
-        if ps[2] == 'page':
+        if ps[2] == "page":
             p = int(ps[3])
-            await SEND(q, ctx, kind, p, ctx.bot_data.get('fq', ''))
+            await SEND(q, ctx, kind, p, ctx.bot_data.get("fq", ""))
             return
-        if ps[2] == 'sel':
+        if ps[2] == "sel":
             i = int(ps[3])
-            lst = ctx.bot_data.get('lst', [])
+            lst = ctx.bot_data.get("lst", [])
             if 0 <= i < len(lst):
                 it = lst[i]
-                t = it['name'] + '\n' + it['code']
+                t = it["name"]
+                t += "\n"
+                t += it["code"]
                 await q.message.reply_text(t)
             return
-    if d.startswith('lc_'):
-        ps = d.split('_')
+    if d.startswith("lc_"):
+        ps = d.split("_")
         k = ps[1]
         cat = ps[2]
         await q.message.reply_text(FL(k, cat), reply_markup=LCAT_KB(k))
         return
-    if d.startswith('accept_'):
-        uid2 = d.split('_')[1]
+    if d.startswith("accept_"):
+        uid2 = d.split("_")[1]
         u = LU()
         if uid2 in u:
-            u[uid2]['status'] = 'accepted'
+            u[uid2]["status"] = "accepted"
             SU(u)
             await ctx.bot.send_message(chat_id=int(uid2), text=WEL, reply_markup=MAIN_KB())
-            await q.message.reply_text('Accepted')
+            await q.message.reply_text("Accepted")
         return
-    if d.startswith('reject_'):
-        uid2 = d.split('_')[1]
+    if d.startswith("reject_"):
+        uid2 = d.split("_")[1]
         u = LU()
         if uid2 in u:
-            u[uid2]['status'] = 'rejected'
+            u[uid2]["status"] = "rejected"
             SU(u)
-            await q.message.reply_text('Rejected')
+            await q.message.reply_text("Rejected")
         return
-    if d.startswith('gpc_'):
-        i = int(d.split('_')[1])
-        lst = ctx.user_data.get('gpc', [])
+    if d.startswith("gpc_"):
+        i = int(d.split("_")[1])
+        lst = ctx.user_data.get("gpc", [])
         if 0 <= i < len(lst):
             await q.message.reply_text(FB(lst[i]))
         return
 async def SAVE_DOC(update, ctx):
     if str(update.message.from_user.id) != str(ADM):
         return
-    cap = (update.message.caption or '').strip()
+    cap = (update.message.caption or "").strip()
     if not cap:
-        cap = 'بدون اسم'
+        cap = "بدون اسم"
     f = None
-    ext = 'jpg'
+    ext = "jpg"
     if update.message.photo:
         f = await update.message.photo[-1].get_file()
     elif update.message.document:
         f = await update.message.document.get_file()
-        ext = 'pdf'
+        ext = "pdf"
     else:
         return
-    ds = LJ('docs_index.json', [])
+    ds = LJ("docs_index.json", [])
     num = len(ds) + 1
-    fn = 'docs/' + str(num) + '.' + ext
+    fn = "docs/"
+    fn += str(num)
+    fn += "."
+    fn += ext
     await f.download_to_drive(fn)
     d = {}
-    d['num'] = num
-    d['name'] = cap
-    d['path'] = fn
+    d["num"] = num
+    d["name"] = cap
+    d["path"] = fn
     ds.append(d)
-    SJ('docs_index.json', ds)
-    await update.message.reply_text('اتحفظ ' + str(num))
+    SJ("docs_index.json", ds)
+    await update.message.reply_text("اتحفظ " + str(num))
 async def HANDLE(update, ctx):
     us = update.message.from_user
     uid = str(us.id)
-    text = update.message.text or ''
+    text = update.message.text or ""
     low = text.strip().lower()
     bare = text.strip().lstrip(SL).strip().lower()
-    if 'تزيل' in text or 'download' in low:
-        m = re.search(r'(\d+)', text)
+    if "تزيل" in text or "download" in low:
+        m = re.search(r"(\d+)", text)
         if not m:
-            await update.message.reply_text('اكتب: تزيل 1')
+            await update.message.reply_text("اكتب: تزيل 1")
             return
         num = int(m.group(1))
-        for x in LJ('docs_index.json', []):
-            if x['num'] == num:
-                cap = x['name']
-                await update.message.reply_document(document=open(x['path'], 'rb'), caption=cap)
+        for x in LJ("docs_index.json", []):
+            if x["num"] == num:
+                cap = x["name"]
+                await update.message.reply_document(document=open(x["path"], "rb"), caption=cap)
                 return
-        await update.message.reply_text('مفيش مستند')
+        await update.message.reply_text("مفيش مستند")
         return
-    if bare == 'شركات':
-        await update.message.reply_text('الشركات:', reply_markup=COMP_KB())
+    if bare == "شركات":
+        await update.message.reply_text("الشركات:", reply_markup=COMP_KB())
         return
-    if bare == 'خاصة' or bare == 'private':
-        ctx.bot_data['ct'] = 'private'
-        await SEND(update, ctx, 'comp', 0, '')
+    if bare == "خاصة" or bare == "private":
+        ctx.bot_data["ct"] = "private"
+        await SEND(update, ctx, "comp", 0, "")
         return
-    if bare == 'حكومية' or bare == 'gov':
-        ctx.bot_data['ct'] = 'gov'
-        await SEND(update, ctx, 'comp', 0, '')
+    if bare == "حكومية" or bare == "gov":
+        ctx.bot_data["ct"] = "gov"
+        await SEND(update, ctx, "comp", 0, "")
         return
-    if bare == 'اجنبية' or bare == 'foreign':
-        ctx.bot_data['ct'] = 'foreign'
-        await SEND(update, ctx, 'comp', 0, '')
+    if bare == "اجنبية" or bare == "foreign":
+        ctx.bot_data["ct"] = "foreign"
+        await SEND(update, ctx, "comp", 0, "")
         return
-    if bare == 'menu' or bare == 'القايمة':
-        await update.message.reply_text('القايمة:', reply_markup=MAIN_KB())
+    if bare == "menu" or bare == "القايمة":
+        await update.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
-    if bare == 'تعريفة' or bare == 'tariff':
-        await SEND(update, ctx, 'tariff', 0, '')
+    if bare == "تعريفة" or bare == "tariff":
+        await SEND(update, ctx, "tariff", 0, "")
         return
-    if bare == 'توكيلات':
-        await SEND(update, ctx, 'line', 0, '')
+    if bare == "توكيلات":
+        await SEND(update, ctx, "line", 0, "")
         return
-    if low.startswith('gpc '):
-        qq = text.strip().split(' ', 1)[1]
+    if low.startswith("gpc "):
+        qq = text.strip().split(" ", 1)[1]
         b = SGPC(qq)
         if b is None:
-            await update.message.reply_text('ملقيتش صنف')
+            await update.message.reply_text("ملقيتش صنف")
             return
         if isinstance(b, tuple):
-            ctx.user_data['gpc'] = b[1]
+            ctx.user_data["gpc"] = b[1]
             rows = []
             for i, x in enumerate(b[1]):
-                rows.append([B(x['t'][:50], 'gpc_' + str(i))])
+                rows.append([B(x["t"][:50], "gpc_" + str(i))])
             kb = MK(rows)
-            await update.message.reply_text('اختار صنف:', reply_markup=kb)
+            await update.message.reply_text("اختار صنف:", reply_markup=kb)
             return
         await update.message.reply_text(FB(b))
         return
-    if re.match(r'^[\d\.\s]+$', text.strip()):
+    if re.match(r"^[\d\.\s]+$", text.strip()):
         rs = ST(text.strip())
         if rs:
             if len(rs) == 1:
                 await update.message.reply_text(FT(rs[0]))
                 return
-            await SEND(update, ctx, 'tariff', 0, text.strip())
+            await SEND(update, ctx, "tariff", 0, text.strip())
             return
     ps = text.strip().split()
     if len(ps) == 2:
@@ -767,14 +855,38 @@ async def HANDLE(update, ctx):
             return
     k = RL(text.strip())
     if k:
-        await update.message.reply_text(FL(k, 'ALL'), reply_markup=LCAT_KB(k))
+        await update.message.reply_text(FL(k, "ALL"), reply_markup=LCAT_KB(k))
         return
     if text.strip().isdigit() and len(text.strip()) >= 9:
         if text.strip() in CBR:
             await update.message.reply_text(FC(CBR[text.strip()]))
             return
-    if GC(text.strip(), ''):
-        await SEND(update, ctx, 'comp', 0, text.strip())
+    if GC(text.strip(), ""):
+        await SEND(update, ctx, "comp", 0, text.strip())
         return
     if not OK(uid):
-        await update.message.reply_text('ابعت start ال
+        await update.message.reply_text("ابعت start الاول", reply_markup=MAIN_KB())
+        return
+    b = SGPC(text)
+    if b is not None:
+        if isinstance(b, tuple):
+            ctx.user_data["gpc"] = b[1]
+            rows = []
+            for i, x in enumerate(b[1]):
+                rows.append([B(x["t"][:50], "gpc_" + str(i))])
+            kb = MK(rows)
+            await update.message.reply_text("اختار صنف:", reply_markup=kb)
+            return
+        await update.message.reply_text(FB(b))
+        return
+    await update.message.reply_text("وصلت", reply_markup=MAIN_KB())
+def MAIN():
+    print("Bot starting...")
+    app = ApplicationBuilder().token(BOT).build()
+    app.add_handler(CommandHandler("start", START))
+    app.add_handler(CallbackQueryHandler(BTN))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, SAVE_DOC))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, HANDLE))
+    app.run_polling()
+    print("Bot stopped")
+MAIN()
