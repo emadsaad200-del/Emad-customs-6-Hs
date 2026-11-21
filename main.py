@@ -14,15 +14,14 @@ from telegram.ext import CallbackQueryHandler
 from telegram.ext import ContextTypes
 from telegram.ext import filters
 
-BOT = os.getenv("BOT_TOKEN")
+# ===== التوكن =====
+BOT = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 ADM = os.getenv("ADMIN_ID")
 SL = chr(47)
 os.makedirs("docs", exist_ok=True)
 
-# صورة النهاية - لازم تكون جنب الكود بنفس الاسم
 END_IMG = "end_session.jpg"
 END_WORDS = ["خلصت", "شكرا", "شكرا لك", "تمام كده", "كفايه", "كفاية", "سلام", "bye", "thanks", "thank you"]
-# لو عايز تغير مدة السكوت غير الرقم ده - 600 ثانية = 10 دقايق
 END_TIMEOUT = 600
 
 def LJ(f, d):
@@ -78,50 +77,76 @@ def LCAT_KB(k):
     r3 = [B("🏠 القايمة الرئيسية", "m_main")]
     return MK([r1, r2, r3])
 
-# ===== GPC - من ملفه بس =====
+# ============================================================
+# GPC - بأسامي الملفات اللي في الصور بالظبط
+# GPC as of May 2023 v20230605 EN.xlsx (6 MB - الاساسي)
+# gs1xlsx.xlsx (37 KB - احتياطي)
+# ============================================================
 BI = {}
 BC = {}
 BA = {}
-for fn in ["gs1xlsx.xlsx"]:
+def LOAD_GPC_FILE(fn):
     if not os.path.exists(fn):
-        continue
-    wb = openpyxl.load_workbook(fn, read_only=True)
-    ws = wb[wb.sheetnames[0]]
-    for r in ws.iter_rows(values_only=True):
-        if not r:
-            continue
-        r = list(r)
-        r += [""] * 15
-        r = tuple(r)
-        bt = str(GV(r, 10) or "")
-        if not bt:
-            continue
-        k = bt.strip().lower()
-        if k not in BI:
-            d = {}
-            d["c"] = str(GV(r, 9) or "")
-            d["t"] = bt
-            d["s"] = GV(r, 1)
-            d["f"] = GV(r, 4)
-            d["cl"] = GV(r, 7)
-            d["i"] = GV(r, 11) or ""
-            d["e"] = GV(r, 12) or ""
-            BI[k] = d
-            BC[d["c"]] = k
-        if GV(r, 13) != "":
-            ac = str(GV(r, 13))
-            if k not in BA:
-                BA[k] = []
-            ex = None
-            for a in BA[k]:
-                if a["c"] == ac:
-                    ex = a
-            if ex is None:
-                ex = {"c": ac, "t": GV(r, 14), "v": []}
-                BA[k].append(ex)
-    wb.close()
+        print(f"GPC FILE NOT FOUND: {fn}")
+        return
+    try:
+        sz = os.path.getsize(fn)//1024
+        print(f"Loading GPC file: {fn} - {sz} KB")
+        wb = openpyxl.load_workbook(fn, read_only=True)
+        ws = wb[wb.sheetnames[0]]
+        cnt = 0
+        for r in ws.iter_rows(values_only=True):
+            if not r:
+                continue
+            r = list(r)
+            r += [""] * 15
+            r = tuple(r)
+            bt = str(GV(r, 10) or "")
+            if not bt:
+                continue
+            k = bt.strip().lower()
+            if k not in BI:
+                d = {}
+                d["c"] = str(GV(r, 9) or "")
+                d["t"] = bt
+                d["s"] = GV(r, 1)
+                d["f"] = GV(r, 4)
+                d["cl"] = GV(r, 7)
+                d["i"] = GV(r, 11) or ""
+                d["e"] = GV(r, 12) or ""
+                BI[k] = d
+                BC[d["c"]] = k
+                cnt += 1
+            if GV(r, 13) != "":
+                ac = str(GV(r, 13))
+                if k not in BA:
+                    BA[k] = []
+                ex = None
+                for a in BA[k]:
+                    if a["c"] == ac:
+                        ex = a
+                if ex is None:
+                    ex = {"c": ac, "t": GV(r, 14), "v": []}
+                    BA[k].append(ex)
+        wb.close()
+        print(f"Done GPC {fn} -> added {cnt}, total now {len(BI)}")
+    except Exception as e:
+        print(f"GPC load fail {fn}: {e}")
 
-# ===== المراجع - من ملف cities.xlsx بس =====
+# الملف الكبير الاول - هو اللي فيه الداتا
+LOAD_GPC_FILE("GPC as of May 2023 v20230605 EN.xlsx")
+# الملف الصغير بعديه
+LOAD_GPC_FILE("gs1xlsx.xlsx")
+# اي ملف تاني فيه كلمة GPC
+for f in sorted(os.listdir(".")):
+    low = f.lower()
+    if "gpc" in low and low.endswith(".xlsx") and f not in ["GPC as of May 2023 v20230605 EN.xlsx", "gs1xlsx.xlsx"]:
+        LOAD_GPC_FILE(f)
+print(f"GPC loaded: {len(BI)} items")
+
+# ============================================================
+# المراجع - cities.xlsx
+# ============================================================
 REF = {}
 for kind in ["cities", "country", "currency", "package", "uom"]:
     REF[kind] = {}
@@ -143,8 +168,13 @@ if os.path.exists("cities.xlsx"):
                 continue
             REF[kind][c] = {"code": c, "name": n}
     wb.close()
+    print(f"REF loaded cities.xlsx")
+else:
+    print("REF FILE MISSING: cities.xlsx")
 
-# ===== الشركات - من 2026 بس، 111111 اتلغى من الكود =====
+# ============================================================
+# الشركات - ارقام_تسجيل_الشركات_2026.xlsx
+# ============================================================
 CL = []
 CBR = {}
 def AC(n, f, rg, en, ac, st, ad, ct):
@@ -154,7 +184,6 @@ def AC(n, f, rg, en, ac, st, ad, ct):
         return
     if rg in CBR:
         return
-    # تخطي الصف البايظ في شيت حكومي
     if "قطاع" in n and "حكومي" in n:
         return
     if "الاسم" in n:
@@ -171,7 +200,6 @@ def AC(n, f, rg, en, ac, st, ad, ct):
     CL.append(it)
     CBR[rg] = it
 
-# ملحوظة: ملف 111111 موجود عندك بس البوت مش بيقراه تاني عشان كان بيبوظ النتايج
 F2 = "ارقام_تسجيل_الشركات_2026.xlsx"
 if os.path.exists(F2):
     wb = openpyxl.load_workbook(F2, read_only=True)
@@ -192,6 +220,9 @@ if os.path.exists(F2):
                 continue
             AC(GV(r, 2), "", GV(r, 1), "فرع اجنبي", "", "", CC(GV(r, 3)), "foreign")
     wb.close()
+    print(f"Companies loaded: {len(CL)}")
+else:
+    print(f"COMPANIES FILE MISSING: {F2}")
 
 def FC(c):
     t = "🏢 " + c["name"] + "\n"
@@ -228,22 +259,34 @@ def GC(q, ct):
                 o.append(c)
     return o
 
-# ===== التعريفة - كل ملفات tarifa + توحيد الأعمدة =====
+# ============================================================
+# التعريفة - بأسامي الملفات اللي في الصور بالظبط
+# tarifa_01.xlsx.xlsx لحد tarifa_27.xlsx.xlsx
+# ============================================================
 TL = []
 TB = {}
 def NTC(s):
-    s = str(s or "").strip().replace(" ", "")
-    if re.match(r"^\d{6}$", s):
+    s = str(s or "").strip().replace(" ", "").replace("-", ".")
+    s = s.strip(".")
+    # 4802 -> 48.02 | 480210 -> 48.02.10 | 48021000 -> 48.02.10.00
+    if re.match(r"^\d{4}$", s):
+        s = s[:2] + "." + s[2:]
+    elif re.match(r"^\d{6}$", s):
         s = s[:4] + "." + s[4:]
-    if re.match(r"^\d{8}$", s):
+    elif re.match(r"^\d{8}$", s):
         s = s[:4] + "." + s[4:6] + "." + s[6:]
+    elif re.match(r"^\d{10}$", s):
+        s = s[:4] + "." + s[4:6] + "." + s[6:8] + "." + s[8:]
     return s
+
 def load_tar(fn):
     try:
         wb = openpyxl.load_workbook(fn, read_only=True)
-    except:
+    except Exception as e:
+        print(f"Tariff load fail {fn}: {e}")
         return
     ws = wb[wb.sheetnames[0]]
+    before = len(TL)
     for r in ws.iter_rows(values_only=True):
         if not r:
             continue
@@ -252,7 +295,6 @@ def load_tar(fn):
         if not code or not desc:
             continue
         if code in TB:
-            # لو البند موجود قبل كده، كمل بياناته لو ناقصة - مش تمسح القديم
             if not TB[code].get("tax") and CC(GV(r, 2)):
                 TB[code]["tax"] = CC(GV(r, 2))
             continue
@@ -263,14 +305,39 @@ def load_tar(fn):
         TB[code] = it
         TL.append(it)
     wb.close()
+    print(f"Loaded {fn} -> +{len(TL)-before} total {len(TL)}")
 
+# 1- لو في فولدر tarifa/ قديم
 if os.path.isdir("tarifa"):
     for f in sorted(os.listdir("tarifa")):
         if f.lower().endswith(".xlsx"):
             load_tar(os.path.join("tarifa", f))
+# 2- الملفات اللي في الصور: tarifa_XX.xlsx.xlsx في الروت
+# بنقرا من 01 لحد 30 بالترتيب عشان النتيجة تبقى مظبوطة
+for i in range(1, 31):
+    fn1 = f"tarifa_{i:02d}.xlsx.xlsx"
+    fn2 = f"tarifa_{i:02d}.xlsx"
+    if os.path.exists(fn1):
+        load_tar(fn1)
+    elif os.path.exists(fn2):
+        load_tar(fn2)
+# 3- اي ملف تاني بيبدأ بـ tarifa_ ولسه متحملش
+for f in sorted(os.listdir(".")):
+    low = f.lower()
+    if low.startswith("tarifa_") and low.endswith(".xlsx"):
+        # اتأكد انه متحملش قبل كده - بنشوف لو الكود متكرر هنعديه في load_tar اصلا
+        # هنا بنحمل اي ملف مش في القايمة اللي فوق زي tarifa_31 او غيره
+        already = False
+        for i in range(1, 31):
+            if f == f"tarifa_{i:02d}.xlsx.xlsx" or f == f"tarifa_{i:02d}.xlsx":
+                already = True
+        if not already:
+            load_tar(f)
+# 4- الملفات القديمة لو رجعت
 for fn in ["30285-1.xlsx", "70490-2.xlsx"]:
     if os.path.exists(fn):
         load_tar(fn)
+print(f"Tariff loaded: {len(TL)} items")
 
 def ST(q):
     q = (q or "").strip()
@@ -279,11 +346,17 @@ def ST(q):
     cq = NTC(q)
     if cq in TB:
         return [TB[cq]]
-    qd = q.replace(".", "").replace(" ", "")
+    qd = q.replace(".", "").replace(" ", "").replace("-", "")
     if qd.isdigit():
+        out = []
         for code, it in TB.items():
-            if code.replace(".", "") == qd or code.replace(".", "").startswith(qd):
-                return [it]
+            cd = code.replace(".", "")
+            if cd == qd or cd.startswith(qd) or qd.startswith(cd[:4]):
+                out.append(it)
+                if len(out) >= 50:
+                    break
+        if out:
+            return out
     nq = NA(q)
     out = []
     for t in TL:
@@ -299,7 +372,9 @@ def FT(t):
     x += "الضريبة: " + t["tax"]
     return x.strip()
 
-# ===== التوكيلات + Rotation - من ملف التوكيلات بس =====
+# ============================================================
+# التوكيلات + Rotation - ايميلات_وارقام_توكيلات.xlsx
+# ============================================================
 LC = {}
 LN = {}
 ROT = []
@@ -338,6 +413,9 @@ if os.path.exists(F3):
             d["pol"] = pol; d["pod"] = pod; d["line"] = CC(GV(r, 2)); d["tt"] = CC(GV(r, 3)); d["co"] = CC(GV(r, 4))
             ROT.append(d)
     wb.close()
+    print(f"Lines loaded: {len(LN)}")
+else:
+    print(f"LINES FILE MISSING: {F3}")
 
 AM = {}
 AM["ميرسك"] = "MAERSK"; AM["هاباج"] = "HAPAG"; AM["كوسكو"] = "COSCO"; AM["ايفرجرين"] = "EVERGREEN"; AM["ام اس سي"] = "MSC"; AM["زيم"] = "ZIM"; AM["اركاس"] = "ARKAS"; AM["وان"] = "ONE"
@@ -401,23 +479,19 @@ def FROT(rs, pol, pod):
 WEL = "Welcome to Captain Emad Customs Bot"
 HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 
-🚢 توكيلات: اكتب MAERSK او ميرسك - هيطلعلك الايميلات والارقام والـ Booking والـ Invoice
+🚢 توكيلات: اكتب MAERSK او ميرسك
 📦 GPC: اكتب GPC Airbrushes او GPC + الاسم او الكود
-📜 التعريفة: اكتب 8420 او 84 او اسم الصنف او جزء منه او كلمة دالة - مثال: مروحة
-    - دوس على البند هيطلعلك بيانات التعريفة كاملة
-    - استخدم التالي / السابق عشان تقلب في النتايج
-🏢 شركات: اكتب النور او رقم التسجيل 100271510 - اختار الخاصة / الحكومية / الاجنبية من القايمة
-🔄 Rotation: اكتب Alex Izmir - مدينة البداية ومدينة الوصول
-🌍 Country: اكتب country Egypt او country مص
-🏙️ Cities: اكتب city Cairo او city القاهرة
+📜 التعريفة: اكتب 8420 او 84 او اسم الصنف - مثال: مروحة - او 4802 / 48.02
+🏢 شركات: اكتب النور او رقم التسجيل
+🔄 Rotation: اكتب Alex Izmir
+🌍 Country: اكتب country Egypt
+🏙️ Cities: اكتب city Cairo
 💱 Currency: اكتب currency USD
 📦 Package: اكتب package Box
 ⚖️ UOM: اكتب uom KG
-📄 مستندات: اكتب تزيل 1 او تزيل اسم المستند 1 - او دوس على زرار مستندات
+📄 مستندات: اكتب تزيل 1
 🕐 اخر بحث: بيجيب اخر حاجة بحثت عنها
 القايمة: اكتب menu
-
-لو بحثك لقى نتيجة في اكتر من ايقونة، البوت هيخيرك تختار انهي واحدة.
 """
 
 def LU():
@@ -501,9 +575,7 @@ def SREF(kind, q):
             out.append(x)
     return out
 
-# ===== صورة النهاية =====
 async def SEND_END_IMAGE(ctx, chat_id):
-    # مرة واحدة بس في الجلسة
     if ctx.user_data.get("end_sent"):
         return
     ctx.user_data["end_sent"] = True
@@ -513,31 +585,40 @@ async def SEND_END_IMAGE(ctx, chat_id):
             return
         except:
             pass
-    # لو الصورة مش موجودة، ابعت نص بديل
     await ctx.bot.send_message(chat_id=chat_id, text="لو حابب تكمل أو تشترك:\nTelegram: https://t.me/tarrifabot\nWhatsApp: wa.me/+201094038730\nPhone: 01094038730")
 
 async def END_JOB(ctx):
-    # شغل بعد 10 دقايق سكوت
     chat_id = ctx.job.chat_id
     await SEND_END_IMAGE(ctx, chat_id)
 
 def RESET_END_TIMER(ctx):
-    # الغي المؤقت القديم وابدأ واحد جديد - عشان الـ 10 دقايق تتحسب من اخر رسالة
     try:
-        jobs = ctx.job_queue.get_jobs_by_name("end_timer_" + str(ctx._chat_id if hasattr(ctx, "_chat_id") else ""))
-        for j in jobs:
-            j.schedule_removal()
+        if ctx.job_queue is None:
+            return
+        for j in ctx.job_queue.jobs():
+            if j.name and j.name.startswith("end_timer_"):
+                try:
+                    if j.chat_id == ctx._chat_id:
+                        j.schedule_removal()
+                except:
+                    pass
     except:
         pass
     try:
-        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=ctx._chat_id if hasattr(ctx, "_chat_id") else None, name="end_timer")
+        chat_id = None
+        try:
+            chat_id = ctx._chat_id
+        except:
+            pass
+        if chat_id is None:
+            return
+        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=chat_id, name="end_timer_" + str(chat_id))
     except:
         pass
 
 def SAVE_RECENT(ctx, text):
     lst = ctx.user_data.get("recent", [])
     lst.append(text)
-    # خلي اخر 10 بس
     ctx.user_data["recent"] = lst[-10:]
 
 async def SEND(up, ctx, kind, page, q):
@@ -555,8 +636,6 @@ async def SEND(up, ctx, kind, page, q):
         items = TL
         if q:
             items = ST(q)
-            if not items:
-                items = [t for t in TL if NA(q) in NA(t["desc"]) or q in t["code"]]
         kb, txt = PG(items, page, "tariff_", lambda t: "📜 " + t["code"] + " - " + t["desc"][:35])
     elif kind == "line":
         items = sorted(LN.keys(), key=lambda x: LN[x])
@@ -636,11 +715,7 @@ async def BTN(update, ctx):
         pass
     d = q.data
     uid = q.from_user.id
-    # اي ضغطة زرار بتلغي مؤقت النهاية وتبدأ واحد جديد
-    try:
-        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=q.message.chat_id, name="end_timer")
-    except:
-        pass
+    RESET_END_TIMER(ctx)
     if d == "m_main":
         await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
@@ -703,7 +778,6 @@ async def BTN(update, ctx):
     if d == "m_docs":
         await SEND(q, ctx, "docs", 0, "")
         return
-    # اختيار من البحث المتعدد
     if d.startswith("pick_"):
         kind = d.split("_")[1]
         qq = ctx.user_data.get("multi_q", "")
@@ -821,15 +895,6 @@ async def BTN(update, ctx):
             SU(u)
             await q.message.reply_text("Rejected")
         return
-    if d.startswith("gpc_"):
-        try:
-            i = int(d.split("_")[1])
-            lst = ctx.user_data.get("gpc", [])
-            if 0 <= i < len(lst):
-                await q.message.reply_text(FB(lst[i]))
-        except:
-            pass
-        return
 
 async def SAVE_DOC(update, ctx):
     if str(update.message.from_user.id) != str(ADM):
@@ -864,17 +929,11 @@ async def HANDLE(update, ctx):
     text = update.message.text or ""
     low = text.strip().lower()
     bare = text.strip().lstrip(SL).strip().lower()
-    # جدد مؤقت الـ 10 دقايق مع كل رسالة
-    try:
-        ctx.job_queue.run_once(END_JOB, END_TIMEOUT, chat_id=update.message.chat_id, name="end_timer")
-    except:
-        pass
-    # كلمة نهاية - ابعت الصورة مرة واحدة
+    RESET_END_TIMER(ctx)
     if NA(text) in [NA(w) for w in END_WORDS]:
         await update.message.reply_text("العفو، نورتنا ❤️")
         await SEND_END_IMAGE(ctx, update.message.chat_id)
         return
-    # 3 - مستندات
     if "تزيل" in text or "download" in low:
         SAVE_RECENT(ctx, text)
         m = re.search(r"(\d+)", text)
@@ -927,10 +986,10 @@ async def HANDLE(update, ctx):
             await update.message.reply_text("📦 ملقيتش صنف")
             return
         if isinstance(b, tuple):
-            ctx.user_data["gpc"] = b[1]
+            ctx.user_data["lst"] = b[1]
             rows = []
             for i, x in enumerate(b[1]):
-                rows.append([B("📦 " + x["t"][:50], "gpc_" + str(i))])
+                rows.append([B("📦 " + x["t"][:50], "gpc_sel_" + str(i))])
             kb = MK(rows)
             await update.message.reply_text("اختار صنف:", reply_markup=kb)
             return
@@ -996,7 +1055,7 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "cities", 0, qq)
         return
-    if re.match(r"^[\d\.\s]+$", text.strip()):
+    if re.match(r"^[\d\.\s\-]+$", text.strip()):
         SAVE_RECENT(ctx, text)
         rs = ST(text.strip())
         if rs:
@@ -1014,8 +1073,6 @@ async def HANDLE(update, ctx):
             SAVE_RECENT(ctx, text)
             await update.message.reply_text(FROT(rs, ps[0], ps[1]))
             return
-    # ===== البحث الذكي المتعدد - لو لقى في اكتر من ايقونة خيّر المستخدم =====
-    # بنفحص من غير ما نرجع نتيجة واحدة غلط
     k_line = RL(text.strip())
     comp_hits = GC(text.strip(), "")
     tariff_hits = ST(text.strip())
@@ -1025,7 +1082,6 @@ async def HANDLE(update, ctx):
     if comp_hits: found.append("comp")
     if tariff_hits: found.append("tariff")
     if gpc_hit is not None: found.append("gpc")
-    # لو لقى في 2 او اكتر، خيّر المستخدم - وده الجديد
     if len(found) >= 2:
         SAVE_RECENT(ctx, text)
         ctx.user_data["multi_q"] = text.strip()
@@ -1073,10 +1129,10 @@ async def HANDLE(update, ctx):
     if gpc_hit is not None:
         SAVE_RECENT(ctx, text)
         if isinstance(gpc_hit, tuple):
-            ctx.user_data["gpc"] = gpc_hit[1]
+            ctx.user_data["lst"] = gpc_hit[1]
             rows = []
             for i, x in enumerate(gpc_hit[1]):
-                rows.append([B("📦 " + x["t"][:50], "gpc_" + str(i))])
+                rows.append([B("📦 " + x["t"][:50], "gpc_sel_" + str(i))])
             kb = MK(rows)
             await update.message.reply_text("اختار صنف:", reply_markup=kb)
             return
@@ -1086,6 +1142,10 @@ async def HANDLE(update, ctx):
 
 def MAIN():
     print("Bot starting...")
+    if not BOT:
+        print("ERROR: No BOT_TOKEN! حط BOT_TOKEN في Environment Variables")
+        return
+    print(f"GPC: {len(BI)} | Tariff: {len(TL)} | Companies: {len(CL)} | Lines: {len(LN)}")
     app = ApplicationBuilder().token(BOT).build()
     app.add_handler(CommandHandler("start", START))
     app.add_handler(CallbackQueryHandler(BTN))
