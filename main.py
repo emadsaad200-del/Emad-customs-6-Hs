@@ -78,9 +78,7 @@ def LCAT_KB(k):
     return MK([r1, r2, r3])
 
 # ============================================================
-# GPC - بأسامي الملفات اللي في الصور بالظبط
-# GPC as of May 2023 v20230605 EN.xlsx (6 MB - الاساسي)
-# gs1xlsx.xlsx (37 KB - احتياطي)
+# GPC
 # ============================================================
 BI = {}
 BC = {}
@@ -133,11 +131,8 @@ def LOAD_GPC_FILE(fn):
     except Exception as e:
         print(f"GPC load fail {fn}: {e}")
 
-# الملف الكبير الاول - هو اللي فيه الداتا
 LOAD_GPC_FILE("GPC as of May 2023 v20230605 EN.xlsx")
-# الملف الصغير بعديه
 LOAD_GPC_FILE("gs1xlsx.xlsx")
-# اي ملف تاني فيه كلمة GPC
 for f in sorted(os.listdir(".")):
     low = f.lower()
     if "gpc" in low and low.endswith(".xlsx") and f not in ["GPC as of May 2023 v20230605 EN.xlsx", "gs1xlsx.xlsx"]:
@@ -173,7 +168,7 @@ else:
     print("REF FILE MISSING: cities.xlsx")
 
 # ============================================================
-# الشركات - ارقام_تسجيل_الشركات_2026.xlsx
+# الشركات
 # ============================================================
 CL = []
 CBR = {}
@@ -260,15 +255,13 @@ def GC(q, ct):
     return o
 
 # ============================================================
-# التعريفة - بأسامي الملفات اللي في الصور بالظبط
-# tarifa_01.xlsx.xlsx لحد tarifa_27.xlsx.xlsx
+# التعريفة
 # ============================================================
 TL = []
 TB = {}
 def NTC(s):
     s = str(s or "").strip().replace(" ", "").replace("-", ".")
     s = s.strip(".")
-    # 4802 -> 48.02 | 480210 -> 48.02.10 | 48021000 -> 48.02.10.00
     if re.match(r"^\d{4}$", s):
         s = s[:2] + "." + s[2:]
     elif re.match(r"^\d{6}$", s):
@@ -307,13 +300,10 @@ def load_tar(fn):
     wb.close()
     print(f"Loaded {fn} -> +{len(TL)-before} total {len(TL)}")
 
-# 1- لو في فولدر tarifa/ قديم
 if os.path.isdir("tarifa"):
     for f in sorted(os.listdir("tarifa")):
         if f.lower().endswith(".xlsx"):
             load_tar(os.path.join("tarifa", f))
-# 2- الملفات اللي في الصور: tarifa_XX.xlsx.xlsx في الروت
-# بنقرا من 01 لحد 30 بالترتيب عشان النتيجة تبقى مظبوطة
 for i in range(1, 31):
     fn1 = f"tarifa_{i:02d}.xlsx.xlsx"
     fn2 = f"tarifa_{i:02d}.xlsx"
@@ -321,19 +311,15 @@ for i in range(1, 31):
         load_tar(fn1)
     elif os.path.exists(fn2):
         load_tar(fn2)
-# 3- اي ملف تاني بيبدأ بـ tarifa_ ولسه متحملش
 for f in sorted(os.listdir(".")):
     low = f.lower()
     if low.startswith("tarifa_") and low.endswith(".xlsx"):
-        # اتأكد انه متحملش قبل كده - بنشوف لو الكود متكرر هنعديه في load_tar اصلا
-        # هنا بنحمل اي ملف مش في القايمة اللي فوق زي tarifa_31 او غيره
         already = False
         for i in range(1, 31):
             if f == f"tarifa_{i:02d}.xlsx.xlsx" or f == f"tarifa_{i:02d}.xlsx":
                 already = True
         if not already:
             load_tar(f)
-# 4- الملفات القديمة لو رجعت
 for fn in ["30285-1.xlsx", "70490-2.xlsx"]:
     if os.path.exists(fn):
         load_tar(fn)
@@ -373,7 +359,7 @@ def FT(t):
     return x.strip()
 
 # ============================================================
-# التوكيلات + Rotation - ايميلات_وارقام_توكيلات.xlsx
+# التوكيلات + Rotation
 # ============================================================
 LC = {}
 LN = {}
@@ -674,38 +660,114 @@ async def SEND(up, ctx, kind, page, q):
         except:
             await up.callback_query.message.reply_text(txt, reply_markup=kb)
 
+# ============================================================
+# ===== نظام اليوزرز - جديد =====
+# ============================================================
+async def SEND_ADMIN_REQUEST(ctx, us, code):
+    # دي الرسالة اللي بتوصلك انت كادمن - فيها بيانات اليوزر + زرارين قبول / رفض
+    if not ADM:
+        return
+    username = "@" + us.username if us.username else "مفيش يوزرنيم"
+    full_name = (us.first_name or "") + " " + (us.last_name or "")
+    full_name = full_name.strip() or "بدون اسم"
+    txt = "🆕 طلب انضمام جديد\n\n"
+    txt += f"👤 الاسم: {full_name}\n"
+    txt += f"🔗 اليوزرنيم: {username}\n"
+    txt += f"🆔 ID: {us.id}\n"
+    txt += f"🎟️ الكود: {code}\n"
+    txt += f"📊 الحالة: pending"
+    kb = MK([[B("✅ قبول", "accept_" + str(us.id)), B("❌ رفض", "reject_" + str(us.id))]])
+    try:
+        await ctx.bot.send_message(chat_id=int(ADM), text=txt, reply_markup=kb)
+    except Exception as e:
+        print(f"Admin notify fail: {e}")
+
 async def START(update, ctx):
     ctx.user_data["end_sent"] = False
     us = update.message.from_user
     u = LU()
     uid = str(us.id)
     now = time.time()
+
+    # الادمن نفسه - يدخل على طول
+    if uid == str(ADM):
+        await update.message.reply_text(WEL + "\n\nانت الادمن 👑\nاكتب /users عشان تشوف اليوزرز", reply_markup=MAIN_KB())
+        return
+
+    # مقبول قبل كده - يدخل على طول
     if uid in u and u[uid].get("status") == "accepted":
         await update.message.reply_text(WEL, reply_markup=MAIN_KB())
         return
-    if uid not in u:
-        code = "USR-" + "".join(random.choices("0123456789", k=4))
-        d = {}
-        d["code"] = code
-        d["name"] = us.first_name or ""
-        d["status"] = "pending"
-        d["requested_at"] = now
-        u[uid] = d
-        SU(u)
-    else:
-        code = u[uid]["code"]
-        u[uid]["status"] = "pending"
-        SU(u)
-    msg = WEL + "\nCode: " + code
-    await update.message.reply_text(msg, reply_markup=MAIN_KB())
-    if ADM:
-        a = B("قبول", "accept_" + uid)
-        b = B("رفض", "reject_" + uid)
-        kb = MK([[a, b]])
-        try:
-            await ctx.bot.send_message(chat_id=int(ADM), text="New: " + code, reply_markup=kb)
-        except:
-            pass
+
+    # مرفوض - ميقدرش يطلب تاني الا لما الادمن يقبله من /users
+    if uid in u and u[uid].get("status") == "rejected":
+        await update.message.reply_text("❌ تم رفض طلبك من قبل الادمن.\nتواصل مع الادمن لو شايف ان ده غلط.")
+        return
+
+    # معلق - موجود قبل كده - قوله استنى ومتزعجش الادمن تاني
+    if uid in u and u[uid].get("status") == "pending":
+        code = u[uid].get("code", "")
+        await update.message.reply_text(f"⏳ طلبك لسه معلق عند الادمن\nالكود بتاعك: {code}\nاستنى الادمن يقبلك.")
+        return
+
+    # جديد خالص - سجله و ابعت للادمن
+    code = "USR-" + "".join(random.choices("0123456789", k=4))
+    d = {}
+    d["code"] = code
+    d["name"] = (us.first_name or "") + " " + (us.last_name or "")
+    d["name"] = d["name"].strip()
+    d["username"] = "@" + us.username if us.username else ""
+    d["status"] = "pending"
+    d["requested_at"] = now
+    d["notified"] = True
+    u[uid] = d
+    SU(u)
+
+    msg = WEL + "\n\n🎟️ الكود بتاعك: " + code + "\n⏳ استنى الادمن يقبلك الاول"
+    await update.message.reply_text(msg)
+    await SEND_ADMIN_REQUEST(ctx, us, code)
+
+async def USERS(update, ctx):
+    # امر الادمن فقط - /users او /user
+    if str(update.message.from_user.id) != str(ADM):
+        await update.message.reply_text("❌ الامر ده للادمن بس")
+        return
+    u = LU()
+    if not u:
+        await update.message.reply_text("مفيش يوزرز خالص لسه")
+        return
+
+    # الاول المعلقين
+    pending = {k: v for k, v in u.items() if v.get("status") == "pending"}
+    others = {k: v for k, v in u.items() if v.get("status") != "pending"}
+
+    if pending:
+        await update.message.reply_text(f"⏳ عندك {len(pending)} طلب معلق:")
+        for uid, d in pending.items():
+            txt = "🆕 طلب انضمام\n\n"
+            txt += f"👤 الاسم: {d.get('name','بدون اسم')}\n"
+            txt += f"🔗 اليوزرنيم: {d.get('username','-')}\n"
+            txt += f"🆔 ID: {uid}\n"
+            txt += f"🎟️ الكود: {d.get('code','-')}\n"
+            txt += f"📊 الحالة: pending"
+            kb = MK([[B("✅ قبول", "accept_" + uid), B("❌ رفض", "reject_" + uid)]])
+            await update.message.reply_text(txt, reply_markup=kb)
+
+    if others:
+        await update.message.reply_text(f"👥 باقي اليوزرز ({len(others)}):")
+        for uid, d in others.items():
+            emoji = "✅" if d.get("status") == "accepted" else "❌"
+            txt = f"{emoji} {d.get('name','بدون اسم')} | {d.get('username','-')}\n"
+            txt += f"ID: {uid} | كود: {d.get('code','-')} | الحالة: {d.get('status')}"
+            # حتى المقبولين تقدر ترفضهم من هنا لو حبيت
+            if d.get("status") == "accepted":
+                kb = MK([[B("❌ رفض", "reject_" + uid)]])
+                await update.message.reply_text(txt, reply_markup=kb)
+            else:
+                kb = MK([[B("✅ قبول", "accept_" + uid)]])
+                await update.message.reply_text(txt, reply_markup=kb)
+    if not pending and not others:
+        await update.message.reply_text("مفيش يوزرز")
 
 async def BTN(update, ctx):
     q = update.callback_query
@@ -716,6 +778,53 @@ async def BTN(update, ctx):
     d = q.data
     uid = q.from_user.id
     RESET_END_TIMER(ctx)
+
+    # القبول والرفض - للادمن بس - لازم يعدي قبل فحص OK
+    if d.startswith("accept_"):
+        if str(uid) != str(ADM):
+            await q.message.reply_text("انت مش الادمن")
+            return
+        uid2 = d.split("_")[1]
+        u = LU()
+        if uid2 in u:
+            u[uid2]["status"] = "accepted"
+            SU(u)
+            try:
+                await ctx.bot.send_message(chat_id=int(uid2), text=WEL, reply_markup=MAIN_KB())
+            except:
+                pass
+            await q.message.reply_text(f"✅ تم قبول {u[uid2].get('name','')} - {uid2}")
+            # عدل رسالة الطلب الاصلية عشان تعرف انك قبلته
+            try:
+                await q.message.edit_text(q.message.text + "\n\n✅ تم القبول")
+            except:
+                pass
+        return
+    if d.startswith("reject_"):
+        if str(uid) != str(ADM):
+            await q.message.reply_text("انت مش الادمن")
+            return
+        uid2 = d.split("_")[1]
+        u = LU()
+        if uid2 in u:
+            u[uid2]["status"] = "rejected"
+            SU(u)
+            try:
+                await ctx.bot.send_message(chat_id=int(uid2), text="❌ تم رفض طلبك من الادمن")
+            except:
+                pass
+            await q.message.reply_text(f"❌ تم رفض {u[uid2].get('name','')} - {uid2}")
+            try:
+                await q.message.edit_text(q.message.text + "\n\n❌ تم الرفض")
+            except:
+                pass
+        return
+
+    # اي زرار تاني - لازم يكون مقبول
+    if not OK(uid):
+        await q.message.reply_text("⏳ استنى الادمن يقبلك الاول، ابعت /start")
+        return
+
     if d == "m_main":
         await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
@@ -878,23 +987,6 @@ async def BTN(update, ctx):
         cat = ps[2]
         await q.message.reply_text(FL(k, cat), reply_markup=LCAT_KB(k))
         return
-    if d.startswith("accept_"):
-        uid2 = d.split("_")[1]
-        u = LU()
-        if uid2 in u:
-            u[uid2]["status"] = "accepted"
-            SU(u)
-            await ctx.bot.send_message(chat_id=int(uid2), text=WEL, reply_markup=MAIN_KB())
-            await q.message.reply_text("Accepted")
-        return
-    if d.startswith("reject_"):
-        uid2 = d.split("_")[1]
-        u = LU()
-        if uid2 in u:
-            u[uid2]["status"] = "rejected"
-            SU(u)
-            await q.message.reply_text("Rejected")
-        return
 
 async def SAVE_DOC(update, ctx):
     if str(update.message.from_user.id) != str(ADM):
@@ -930,6 +1022,14 @@ async def HANDLE(update, ctx):
     low = text.strip().lower()
     bare = text.strip().lstrip(SL).strip().lower()
     RESET_END_TIMER(ctx)
+
+    # ===== حماية اليوزرز - لازم تكون اول حاجة =====
+    # الادمن يعدي - اي حد تاني لازم يكون accepted
+    # /start و /users مش بيدخلوا هنا اصلا لانهم COMMAND
+    if not OK(uid):
+        await update.message.reply_text("⏳ استنى الادمن يقبلك الاول، ابعت /start")
+        return
+
     if NA(text) in [NA(w) for w in END_WORDS]:
         await update.message.reply_text("العفو، نورتنا ❤️")
         await SEND_END_IMAGE(ctx, update.message.chat_id)
@@ -1123,9 +1223,6 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "tariff", 0, text.strip())
         return
-    if not OK(uid):
-        await update.message.reply_text("ابعت start الاول", reply_markup=MAIN_KB())
-        return
     if gpc_hit is not None:
         SAVE_RECENT(ctx, text)
         if isinstance(gpc_hit, tuple):
@@ -1148,6 +1245,7 @@ def MAIN():
     print(f"GPC: {len(BI)} | Tariff: {len(TL)} | Companies: {len(CL)} | Lines: {len(LN)}")
     app = ApplicationBuilder().token(BOT).build()
     app.add_handler(CommandHandler("start", START))
+    app.add_handler(CommandHandler(["users", "user", "USERS"], USERS))
     app.add_handler(CallbackQueryHandler(BTN))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, SAVE_DOC))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, HANDLE))
