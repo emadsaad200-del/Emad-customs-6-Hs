@@ -444,7 +444,7 @@ def FROT(rs, pol, pod):
         t += r["line"] + " | " + r["pol"] + " -> " + r["pod"]
         if r["tt"]: t += " - " + r["tt"]
         t += " | " + r["co"] + "\n"
-    return t
+    return t[:3500]
 
 ROT2 = []
 PORT_AR_EN = {
@@ -636,18 +636,24 @@ def FROT2(rs, q=""):
     if not rs:
         return "🔄 ملقيتش روتيشن لـ " + (q or "")
     t = "🔄 الروتيشن" + (" لـ " + q if q else "") + ":\n\n"
-    for r in rs[:10]:
+    for r in rs[:3]:
         t += "🚢 " + r.get("line","") + "\n"
         if r.get("agent"): t += "الوكيل: " + r["agent"] + "\n"
         if r.get("egy_port"): t += "ميناء التحميل في مصر: " + r["egy_port"] + "\n"
         if r.get("lane"): t += "خط التجارة: " + r["lane"] + "\n"
         if r.get("region"): t += "المنطقة: " + r["region"] + "\n"
-        if r.get("rotation"): t += "خط السير: " + r["rotation"] + "\n"
+        if r.get("rotation"):
+            rot = r["rotation"]
+            if len(rot) > 250:
+                rot = rot[:250] + " ..."
+            t += "خط السير: " + rot + "\n"
         if r.get("avg"): t += "متوسط الرحلة: " + str(r["avg"]) + " يوم\n"
         if r.get("rng"): t += "النطاق: " + r["rng"] + "\n"
         if r.get("freq"): t += "معدل الإبحار: " + r["freq"] + "\n"
         t += "\n"
-    return t.strip()
+    if len(rs) > 3:
+        t += "وفي " + str(len(rs)-3) + " خط تاني، اكتب اسم الخط بالظبط عشان تشوفه"
+    return t.strip()[:3500]
 def FROT_MIXED(r):
     if r.get("rot2"):
         return FROT2([r], r.get("line",""))
