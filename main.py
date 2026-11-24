@@ -559,7 +559,6 @@ def LOAD_ONE_ROT2_FILE(fn):
     try:
         wb = openpyxl.load_workbook(fn, read_only=True)
         ws = wb[wb.sheetnames[0]]
-        cnt = 0
         added = 0
         started = False
         for r in ws.iter_rows(values_only=True):
@@ -608,7 +607,6 @@ def LOAD_ONE_ROT2_FILE(fn):
             d["freq"] = freq
             d["src"] = fn
             ROT2.append(d)
-            cnt += 1
             added += 1
         wb.close()
         print(f"ROT2 loaded {fn} -> +{added} total {len(ROT2)}")
@@ -646,38 +644,44 @@ def SROT2(q):
             hay = " ".join([r.get("line",""), r.get("agent",""), r.get("service",""), r.get("egy_port",""), r.get("lane",""), r.get("region",""), r.get("rotation","")])
             if all(ROT_MATCH(hay, w) for w in words):
                 out.append(r)
-        return out[:20]
+        return out
     out = []
     for r in ROT2:
         hay = " ".join([r.get("line",""), r.get("agent",""), r.get("service",""), r.get("egy_port",""), r.get("lane",""), r.get("region",""), r.get("rotation","")])
         if ROT_MATCH(hay, q):
             out.append(r)
-    return out[:20]
+    return out
 def FROT2(rs, q=""):
     if not rs:
-        return "🔄 ملقيتش روتيشن لـ " + (q or "")
-    t = "🔄 الروتيشن" + (" لـ " + q if q else "") + ":\n\n"
-    for r in rs[:3]:
-        t += "🚢 " + r.get("line","") + "\n"
-        if r.get("agent"): t += "الوكيل: " + r["agent"] + "\n"
-        if r.get("egy_port"): t += "ميناء التحميل في مصر: " + r["egy_port"] + "\n"
-        if r.get("lane"): t += "خط التجارة: " + r["lane"] + "\n"
-        if r.get("region"): t += "المنطقة: " + r["region"] + "\n"
-        if r.get("rotation"):
-            rot = r["rotation"]
-            if len(rot) > 250:
-                rot = rot[:250] + " ..."
-            t += "خط السير: " + rot + "\n"
-        if r.get("avg"): t += "متوسط الرحلة: " + str(r["avg"]) + " يوم\n"
-        if r.get("rng"): t += "النطاق: " + r["rng"] + "\n"
-        if r.get("freq"): t += "معدل الإبحار: " + r["freq"] + "\n"
-        t += "\n"
-    if len(rs) > 3:
-        t += "وفي " + str(len(rs)-3) + " خط تاني، اكتب اسم الخط بالظبط عشان تشوفه"
-    return t.strip()[:3500]
+        return ["🔄 ملقيتش روتيشن لـ " + (q or "")]
+    chunks = []
+    for start in range(0, len(rs), 3):
+        part = rs[start:start+3]
+        t = "🔄 الروتيشن" + (" لـ " + q if q else "") + f" - جزء {start//3 + 1} من {(len(rs)+2)//3} - العدد الكلي: {len(rs)}:\n\n"
+        for r in part:
+            t += "🚢 " + r.get("line","") + "\n"
+            if r.get("agent"): t += "الوكيل: " + r["agent"] + "\n"
+            if r.get("egy_port"): t += "ميناء التحميل في مصر: " + r["egy_port"] + "\n"
+            if r.get("lane"): t += "خط التجارة: " + r["lane"] + "\n"
+            if r.get("region"): t += "المنطقة: " + r["region"] + "\n"
+            if r.get("rotation"):
+                rot = r["rotation"]
+                if len(rot) > 250:
+                    rot = rot[:250] + " ..."
+                t += "خط السير: " + rot + "\n"
+            if r.get("avg"): t += "متوسط الرحلة: " + str(r["avg"]) + " يوم\n"
+            if r.get("rng"): t += "النطاق: " + r["rng"] + "\n"
+            if r.get("freq"): t += "معدل الإبحار: " + r["freq"] + "\n"
+            t += "\n"
+        chunks.append(t.strip())
+    return chunks
+async def SEND_ALL_ROT2(update, rs, q=""):
+    for chunk in FROT2(rs, q):
+        await update.message.reply_text(chunk)
 def FROT_MIXED(r):
     if r.get("rot2"):
-        return FROT2([r], r.get("line",""))
+        ch = FROT2([r], r.get("line",""))
+        return ch[0] if ch else ""
     return FROT([r], r.get("pol",""), r.get("pod",""))
 
 WEL = "Welcome to Captain Emad Customs Bot"
@@ -1412,7 +1416,7 @@ async def HANDLE(update, ctx):
             if rs:
                 await update.message.reply_text(FROT(rs, ps[0], ps[1]))
             if rs2:
-                await update.message.reply_text(FROT2(rs2, text.strip()))
+                await SEND_ALL_ROT2(update, rs2, text.strip())
             return
     k_line = RL(text.strip())
     comp_hits = GC(text.strip(), "")
@@ -1443,7 +1447,7 @@ async def HANDLE(update, ctx):
         return
     if rot2_hits:
         SAVE_RECENT(ctx, text)
-        await update.message.reply_text(FROT2(rot2_hits, text.strip()))
+        await SEND_ALL_ROT2(update, rot2_hits, text.strip())
         return
     if text.strip().isdigit() and len(text.strip()) >= 4:
         if text.strip() in CBR:
