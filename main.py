@@ -359,7 +359,7 @@ def FT(t):
     return x.strip()
 
 # ============================================================
-# التوكيلات + Rotation
+# التوكيلات + Rotation - القديم زي ما هو بالظبط
 # ============================================================
 LC = {}
 LN = {}
@@ -462,6 +462,188 @@ def FROT(rs, pol, pod):
         t += " | " + r["co"] + "\n"
     return t
 
+# ============================================================
+# ===== اضافة جديدة فقط: الروتيشن الجديد - عربي + انجليزي =====
+# الملف الجديد: egypt_shipping_lines_unified_single_sheet1111111111.xlsx
+# ده اضافة، القديم اللي فوق شغال زي ما هو، مفيش حاجة اتمسحت
+# ============================================================
+ROT2 = []
+# خريطة عربي <-> انجليزي للمواني والتوكيلات - للبحث باللغتين
+PORT_AR_EN = {
+    "الاسكندريه": "alexandria", "اسكندريه": "alexandria", "الاسكندرية": "alexandria", "اسكندرية": "alexandria", "alex": "alexandria", "alexandria": "الاسكندرية",
+    "بورسعيد": "port said", "بور سعيد": "port said", "port said": "بورسعيد", "portsaid": "port said",
+    "دمياط": "damietta", "damietta": "دمياط",
+    "السخنه": "sokhna", "السخنة": "sokhna", "سخنه": "sokhna", "سخنة": "sokhna", "sokhna": "السخنة",
+    "الدخيله": "dekheila", "الدخيلة": "dekheila", "دخيله": "dekheila", "دخيلة": "dekheila",
+    "شنغهاي": "shanghai", "شانغهاي": "shanghai", "shanghai": "شنغهاي",
+    "بوسان": "busan", "busan": "بوسان",
+    "نينجبو": "ningbo", "ningbo": "نينجبو",
+    "سنغافوره": "singapore", "سنغافورة": "singapore", "singapore": "سنغافورة",
+    "ازميت": "izmit", "ازمير": "izmir", "izmir": "ازمير", "izmit": "ازميت",
+    "اسطنبول": "istanbul", "استانبول": "istanbul", "istanbul": "اسطنبول",
+    "جده": "jeddah", "جدة": "jeddah", "jeddah": "جدة",
+    "العقبه": "aqaba", "العقبة": "aqaba", "aqaba": "العقبة",
+    "بيروت": "beirut", "beirut": "بيروت",
+    "بيريوس": "piraeus", "piraeus": "بيريوس",
+    "روتردام": "rotterdam", "rotterdam": "روتردام",
+    "هامبورج": "hamburg", "هامبورغ": "hamburg", "hamburg": "هامبورج",
+    "انتويرب": "antwerp", "antwerp": "انتويرب",
+    "فالنسيا": "valencia", "valencia": "فالنسيا",
+    "برشلونه": "barcelona", "برشلونة": "barcelona", "barcelona": "برشلونة",
+    "جنوه": "genoa", "جنوة": "genoa", "genoa": "جنوه",
+    "مالطا": "malta", "malta": "مالطا",
+    "جيبوتي": "djibouti", "djibouti": "جيبوتي",
+    "كوبير": "koper", "koper": "كوبير",
+    "تريستا": "trieste", "trieste": "تريستا",
+    "طنجة": "tangier", "طنجه": "tangier", "tangier": "طنجة",
+    "فلسطين": "palestine",
+}
+LINE_AR_EN = {
+    "ميرسك": "maersk", "maersk": "ميرسك",
+    "ام اس سي": "msc", "إم إس سي": "msc", "msc": "ام اس سي",
+    "سي ام ايه": "cma cgm", "سي ام ايه سي جي ام": "cma cgm", "cma": "سي ام ايه", "cma cgm": "سي ام ايه",
+    "هاباج": "hapag", "هاباج لويد": "hapag", "hapag": "هاباج", "hapag-lloyd": "هاباج",
+    "كوسكو": "cosco", "cosco": "كوسكو",
+    "ايفرجرين": "evergreen", "evergreen": "ايفرجرين",
+    "زيم": "zim", "zim": "زيم",
+    "اركاس": "arkas", "arkas": "اركاس",
+    "وان": "one", "one": "وان",
+    "اوشن": "ocean", "ocean": "اوشن",
+    "ميرسك لاين": "maersk",
+}
+def NORM_ROT_Q(q):
+    # توحيد البحث: عربي وانجليزي، وازالة الهمزات والتشكيل
+    s = NA(q)
+    s = s.replace("-", " ").replace("_", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+def EXPAND_ROT_Q(q):
+    # يرجع كل الصيغ الممكنة للكلمة: عربي + انجليزي
+    nq = NORM_ROT_Q(q)
+    outs = [nq]
+    for k, v in list(PORT_AR_EN.items()) + list(LINE_AR_EN.items()):
+        if NA(k) == nq or NA(v) == nq:
+            outs.append(NA(k))
+            outs.append(NA(v))
+    # لو الكلمة فيها اجزاء، وسع كل جزء
+    parts = nq.split()
+    if len(parts) > 1:
+        for p in parts:
+            outs.extend(EXPAND_ROT_Q(p))
+    return list(set([o for o in outs if o]))
+def ROT_MATCH(text, q):
+    # هل النص فيه الكلمة بأي لغة؟
+    if not q or not text:
+        return False
+    nt = NORM_ROT_Q(text)
+    for cand in EXPAND_ROT_Q(q):
+        if cand and (cand in nt or nt in cand):
+            return True
+    return False
+def LOAD_ROT2_FILE():
+    # بيدور على ملف الروتيشن الجديد بأي اسم قريب منه
+    cands = ["egypt_shipping_lines_unified_single_sheet1111111111.xlsx"]
+    for f in sorted(os.listdir(".")):
+        low = f.lower()
+        if "egypt_shipping" in low and low.endswith(".xlsx") and f not in cands:
+            cands.append(f)
+        if "shipping_lines" in low and low.endswith(".xlsx") and f not in cands:
+            cands.append(f)
+    for fn in cands:
+        if not os.path.exists(fn):
+            continue
+        try:
+            wb = openpyxl.load_workbook(fn, read_only=True)
+            ws = wb[wb.sheetnames[0]]
+            cnt = 0
+            for r in ws.iter_rows(values_only=True):
+                if not r:
+                    continue
+                # الصفوف الاولى عناوين وملخصات - بنتخطاها
+                c0 = CC(GV(r, 0))
+                if not c0 or "التوكيل" in c0 or "القاعدة" in c0 or "جميع التوكيلات" in c0 or "عدد الخطوط" in c0 or "Shipping Line" in c0:
+                    continue
+                line = CC(GV(r, 0))
+                agent = CC(GV(r, 1))
+                service = CC(GV(r, 2))
+                egy_port = CC(GV(r, 3))
+                lane = CC(GV(r, 4))
+                region = CC(GV(r, 5))
+                rotation = CC(GV(r, 6))
+                avg = CC(GV(r, 7))
+                rng = CC(GV(r, 8))
+                freq = CC(GV(r, 9))
+                if not line and not service and not rotation:
+                    continue
+                d = {}
+                # نفس مفاتيح القديم pol/pod/line/tt/co عشان SEND والازرار تشتغل من غير تغيير
+                d["pol"] = egy_port or line
+                d["pod"] = rotation
+                d["line"] = (line + " - " + service).strip(" -")
+                d["tt"] = (str(avg) + " يوم") if avg else rng
+                d["co"] = freq or lane
+                # بيانات اضافية للعرض الكامل
+                d["rot2"] = True
+                d["agent"] = agent
+                d["service"] = service
+                d["egy_port"] = egy_port
+                d["lane"] = lane
+                d["region"] = region
+                d["rotation"] = rotation
+                d["avg"] = avg
+                d["rng"] = rng
+                d["freq"] = freq
+                ROT2.append(d)
+                cnt += 1
+            wb.close()
+            print(f"ROT2 loaded {fn} -> {cnt}, total {len(ROT2)}")
+            return
+        except Exception as e:
+            print(f"ROT2 load fail {fn}: {e}")
+    print("ROT2 FILE MISSING: egypt_shipping_lines_unified_single_sheet1111111111.xlsx")
+LOAD_ROT2_FILE()
+def SROT2(q):
+    # بحث في الملف الجديد بكلمة واحدة او كلمتين: توكيل / ميناء / خدمة / منطقة / روتيشن
+    q = (q or "").strip()
+    if not q or not ROT2:
+        return []
+    words = [w for w in NORM_ROT_Q(q).split() if len(w) >= 2]
+    # كلمتين زي Alex Izmir او الاسكندرية ازمير: لازم الكلمتين يظهروا في نفس السطر
+    if len(words) >= 2:
+        out = []
+        for r in ROT2:
+            hay = " ".join([r.get("line",""), r.get("agent",""), r.get("service",""), r.get("egy_port",""), r.get("lane",""), r.get("region",""), r.get("rotation","")])
+            if all(ROT_MATCH(hay, w) for w in words):
+                out.append(r)
+        return out[:20]
+    # كلمة واحدة
+    out = []
+    for r in ROT2:
+        hay = " ".join([r.get("line",""), r.get("agent",""), r.get("service",""), r.get("egy_port",""), r.get("lane",""), r.get("region",""), r.get("rotation","")])
+        if ROT_MATCH(hay, q):
+            out.append(r)
+    return out[:20]
+def FROT2(rs, q=""):
+    if not rs:
+        return "🔄 ملقيتش روتيشن لـ " + (q or "")
+    t = "🔄 الروتيشن" + (" لـ " + q if q else "") + ":\n\n"
+    for r in rs[:10]:
+        t += "🚢 " + r.get("line","") + "\n"
+        if r.get("agent"): t += "الوكيل: " + r["agent"] + "\n"
+        if r.get("egy_port"): t += "ميناء التحميل في مصر: " + r["egy_port"] + "\n"
+        if r.get("lane"): t += "خط التجارة: " + r["lane"] + "\n"
+        if r.get("rotation"): t += "خط السير: " + r["rotation"] + "\n"
+        if r.get("avg"): t += "متوسط الرحلة: " + str(r["avg"]) + " يوم\n"
+        if r.get("rng"): t += "النطاق: " + r["rng"] + "\n"
+        if r.get("freq"): t += "معدل الإبحار: " + r["freq"] + "\n"
+        t += "\n"
+    return t.strip()
+def FROT_MIXED(r):
+    # عرض سطر واحد سواء كان قديم او جديد - عشان rot_sel_ يشتغل للاتنين
+    if r.get("rot2"):
+        return FROT2([r], r.get("line",""))
+    return FROT([r], r.get("pol",""), r.get("pod",""))
+
 WEL = "Welcome to Captain Emad Customs Bot"
 HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 
@@ -469,7 +651,7 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 📦 GPC: اكتب GPC Airbrushes او GPC + الاسم او الكود
 📜 التعريفة: اكتب 8420 او 84 او اسم الصنف - مثال: مروحة - او 4802 / 48.02
 🏢 شركات: اكتب النور او رقم التسجيل
-🔄 Rotation: اكتب Alex Izmir
+🔄 Rotation: اكتب Alex Izmir او الاسكندرية ازمير او MSC او ميرسك او Sokhna او السخنة
 🌍 Country: اكتب country Egypt
 🏙️ Cities: اكتب city Cairo
 💱 Currency: اكتب currency USD
@@ -635,12 +817,20 @@ async def SEND(up, ctx, kind, page, q):
             items = [x for x in items if qq in x["t"].lower() or qq in x["c"].lower()]
         kb, txt = PG(items, page, "gpc_", lambda x: "📦 " + x["t"][:40] + " - " + x["c"])
     elif kind == "rot":
-        items = ROT
+        # قديم + جديد مع بعض - القديم الاول زي ما كان، وبعدين الجديد
+        items = list(ROT) + list(ROT2)
         if q:
             ps = q.split()
+            old_hits = []
             if len(ps) >= 2:
-                items = SROT(ps[0], ps[1])
-        kb, txt = PG(items, page, "rot_", lambda r: "🔄 " + r["pol"] + " -> " + r["pod"] + " | " + r["line"])
+                old_hits = SROT(ps[0], ps[1])
+            new_hits = SROT2(q)
+            # لو البحث كلمتين والقديم جاب نتيجة، بنجمع الاتنين. لو لأ، الجديد بس
+            if old_hits or new_hits:
+                items = old_hits + new_hits
+            else:
+                items = []
+        kb, txt = PG(items, page, "rot_", lambda r: "🔄 " + str(r.get("pol",""))[:30] + " -> " + str(r.get("pod",""))[:25] + " | " + str(r.get("line",""))[:25])
     elif kind == "docs":
         ds = LJ("docs_index.json", [])
         if q:
@@ -899,6 +1089,8 @@ async def BTN(update, ctx):
             await SEND(q, ctx, "line", 0, qq)
         elif kind == "gpc":
             await SEND(q, ctx, "gpc", 0, qq)
+        elif kind == "rot":
+            await SEND(q, ctx, "rot", 0, qq)
         return
     if d.startswith("comp_page_"):
         p = int(d.split("_")[2])
@@ -950,7 +1142,7 @@ async def BTN(update, ctx):
         lst = ctx.user_data.get("lst", [])
         if 0 <= i < len(lst):
             r = lst[i]
-            await q.message.reply_text(FROT([r], r["pol"], r["pod"]))
+            await q.message.reply_text(FROT_MIXED(r))
         return
     if d.startswith("docs_page_"):
         p = int(d.split("_")[2])
@@ -1075,6 +1267,18 @@ async def HANDLE(update, ctx):
     if bare == "توكيلات":
         await SEND(update, ctx, "line", 0, "")
         return
+    # ===== الروتيشن الجديد - كلمة روتيشن / rotation تفتح القايمة زي القديم =====
+    if bare in ["روتيشن", "rotation", "rot", "الروتيشن", "الروتيشنات"]:
+        await SEND(update, ctx, "rot", 0, "")
+        return
+    if low.startswith("rotation ") or low.startswith("rot ") or text.strip().startswith("روتيشن "):
+        SAVE_RECENT(ctx, text)
+        qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
+        if not qq:
+            await SEND(update, ctx, "rot", 0, "")
+            return
+        await SEND(update, ctx, "rot", 0, qq)
+        return
     if low.startswith("gpc ") or low.startswith("gpc-") or bare == "gpc":
         SAVE_RECENT(ctx, text)
         qq = text.strip().split(" ", 1)[1] if " " in text.strip() else ""
@@ -1169,23 +1373,30 @@ async def HANDLE(update, ctx):
     ps = text.strip().split()
     if len(ps) == 2:
         rs = SROT(ps[0], ps[1])
-        if rs:
+        rs2 = SROT2(text.strip())
+        if rs or rs2:
             SAVE_RECENT(ctx, text)
-            await update.message.reply_text(FROT(rs, ps[0], ps[1]))
+            # القديم الاول لو موجود، وبعدين الجديد - من غير ما نلغي القديم
+            if rs:
+                await update.message.reply_text(FROT(rs, ps[0], ps[1]))
+            if rs2:
+                await update.message.reply_text(FROT2(rs2, text.strip()))
             return
     k_line = RL(text.strip())
     comp_hits = GC(text.strip(), "")
     tariff_hits = ST(text.strip())
     gpc_hit = SGPC(text)
+    rot2_hits = SROT2(text.strip())
     found = []
     if k_line: found.append("line")
     if comp_hits: found.append("comp")
     if tariff_hits: found.append("tariff")
     if gpc_hit is not None: found.append("gpc")
+    if rot2_hits: found.append("rot")
     if len(found) >= 2:
         SAVE_RECENT(ctx, text)
         ctx.user_data["multi_q"] = text.strip()
-        names = {"line": "🚢 التوكيلات", "comp": "🏢 الشركات", "tariff": "📜 التعريفة", "gpc": "📦 GPC"}
+        names = {"line": "🚢 التوكيلات", "comp": "🏢 الشركات", "tariff": "📜 التعريفة", "gpc": "📦 GPC", "rot": "🔄 Rotation"}
         t = "بحثك `" + text.strip() + "` وجد في اكتر من ايقونة:\n\n"
         rows = []
         for f in found:
@@ -1197,6 +1408,10 @@ async def HANDLE(update, ctx):
     if k_line:
         SAVE_RECENT(ctx, text)
         await update.message.reply_text(FL(k_line, "ALL"), reply_markup=LCAT_KB(k_line))
+        return
+    if rot2_hits:
+        SAVE_RECENT(ctx, text)
+        await update.message.reply_text(FROT2(rot2_hits, text.strip()))
         return
     if text.strip().isdigit() and len(text.strip()) >= 4:
         if text.strip() in CBR:
@@ -1242,7 +1457,7 @@ def MAIN():
     if not BOT:
         print("ERROR: No BOT_TOKEN! حط BOT_TOKEN في Environment Variables")
         return
-    print(f"GPC: {len(BI)} | Tariff: {len(TL)} | Companies: {len(CL)} | Lines: {len(LN)}")
+    print(f"GPC: {len(BI)} | Tariff: {len(TL)} | Companies: {len(CL)} | Lines: {len(LN)} | ROT old: {len(ROT)} | ROT2 new: {len(ROT2)}")
     app = ApplicationBuilder().token(BOT).build()
     app.add_handler(CommandHandler("start", START))
     app.add_handler(CommandHandler(["users", "user", "USERS"], USERS))
