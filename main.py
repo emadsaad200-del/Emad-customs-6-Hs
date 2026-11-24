@@ -447,6 +447,7 @@ def FROT(rs, pol, pod):
     return t[:3500]
 
 ROT2 = []
+ROT2_SEEN = set()
 PORT_AR_EN = {
     "الاسكندريه": "alexandria", "اسكندريه": "alexandria", "الاسكندرية": "alexandria", "اسكندرية": "alexandria", "alex": "alexandria", "alexandria": "الاسكندرية",
     "بورسعيد": "port said", "بور سعيد": "port said", "port said": "بورسعيد", "portsaid": "port said",
@@ -499,6 +500,8 @@ PORT_AR_EN = {
     "فيليكستو": "felixstowe", "felixstowe": "فيليكستو",
     "ليفربول": "liverpool", "liverpool": "ليفربول",
     "دبلن": "dublin", "dublin": "دبلن",
+    "عدن": "aden", "aden": "عدن",
+    "نوفوروسيسك": "novorossiysk", "novorossiysk": "نوفوروسيسك",
 }
 LINE_AR_EN = {
     "ميرسك": "maersk", "maersk": "ميرسك",
@@ -549,70 +552,88 @@ def ROT_MATCH(text, q):
         if cand and (cand in nt or nt in cand):
             return True
     return False
+def LOAD_ONE_ROT2_FILE(fn):
+    global ROT2
+    if not os.path.exists(fn):
+        return 0
+    try:
+        wb = openpyxl.load_workbook(fn, read_only=True)
+        ws = wb[wb.sheetnames[0]]
+        cnt = 0
+        added = 0
+        started = False
+        for r in ws.iter_rows(values_only=True):
+            if not r:
+                continue
+            c0 = CC(GV(r, 0))
+            if not started:
+                if "Shipping Line" in c0 and "التوكيل" in c0:
+                    started = True
+                continue
+            if "Filtered" in c0 or "Total Services" in c0:
+                break
+            if not c0:
+                continue
+            line = CC(GV(r, 0))
+            agent = CC(GV(r, 1))
+            service = CC(GV(r, 2))
+            egy_port = CC(GV(r, 3))
+            lane = CC(GV(r, 4))
+            region = CC(GV(r, 5))
+            rotation = CC(GV(r, 6))
+            avg = CC(GV(r, 7))
+            rng = CC(GV(r, 8))
+            freq = CC(GV(r, 9))
+            if not line and not service and not rotation:
+                continue
+            key = (line.lower() + "|" + service.lower() + "|" + rotation.lower()[:80])
+            if key in ROT2_SEEN:
+                continue
+            ROT2_SEEN.add(key)
+            d = {}
+            d["pol"] = egy_port or line
+            d["pod"] = rotation
+            d["line"] = (line + " - " + service).strip(" -")
+            d["tt"] = (str(avg) + " يوم") if avg else rng
+            d["co"] = freq or lane
+            d["rot2"] = True
+            d["agent"] = agent
+            d["service"] = service
+            d["egy_port"] = egy_port
+            d["lane"] = lane
+            d["region"] = region
+            d["rotation"] = rotation
+            d["avg"] = avg
+            d["rng"] = rng
+            d["freq"] = freq
+            d["src"] = fn
+            ROT2.append(d)
+            cnt += 1
+            added += 1
+        wb.close()
+        print(f"ROT2 loaded {fn} -> +{added} total {len(ROT2)}")
+        return added
+    except Exception as e:
+        print(f"ROT2 load fail {fn}: {e}")
+        return 0
 def LOAD_ROT2_FILE():
-    cands = ["egypt_shipping_lines_unified_single_sheet1111111111.xlsx", "egypt_shipping_lines_unified_single_sheet1111111111.xlsx.xlsx"]
+    cands = []
+    fixed = ["egypt_shipping_lines_unified_single_sheet1111111111.xlsx", "egypt_shipping_lines_unified_single_sheet1111111111.xlsx.xlsx", "egypt_shipping_lines-v4.xlsx", "egypt_shipping_lines_v4.xlsx"]
+    for fn in fixed:
+        if fn not in cands:
+            cands.append(fn)
     for f in sorted(os.listdir(".")):
         low = f.lower()
-        if "egypt_shipping" in low and low.endswith(".xlsx") and f not in cands:
-            cands.append(f)
-        if "shipping_lines" in low and low.endswith(".xlsx") and f not in cands:
-            cands.append(f)
+        if low.endswith(".xlsx") and ("egypt_shipping" in low or "shipping_lines" in low):
+            if f not in cands:
+                cands.append(f)
+    total = 0
     for fn in cands:
-        if not os.path.exists(fn):
-            continue
-        try:
-            wb = openpyxl.load_workbook(fn, read_only=True)
-            ws = wb[wb.sheetnames[0]]
-            cnt = 0
-            started = False
-            for r in ws.iter_rows(values_only=True):
-                if not r:
-                    continue
-                c0 = CC(GV(r, 0))
-                if not started:
-                    if "Shipping Line" in c0 and "التوكيل" in c0:
-                        started = True
-                    continue
-                if "Filtered" in c0 or "Total Services" in c0:
-                    break
-                if not c0:
-                    continue
-                line = CC(GV(r, 0))
-                agent = CC(GV(r, 1))
-                service = CC(GV(r, 2))
-                egy_port = CC(GV(r, 3))
-                lane = CC(GV(r, 4))
-                region = CC(GV(r, 5))
-                rotation = CC(GV(r, 6))
-                avg = CC(GV(r, 7))
-                rng = CC(GV(r, 8))
-                freq = CC(GV(r, 9))
-                if not line and not service and not rotation:
-                    continue
-                d = {}
-                d["pol"] = egy_port or line
-                d["pod"] = rotation
-                d["line"] = (line + " - " + service).strip(" -")
-                d["tt"] = (str(avg) + " يوم") if avg else rng
-                d["co"] = freq or lane
-                d["rot2"] = True
-                d["agent"] = agent
-                d["service"] = service
-                d["egy_port"] = egy_port
-                d["lane"] = lane
-                d["region"] = region
-                d["rotation"] = rotation
-                d["avg"] = avg
-                d["rng"] = rng
-                d["freq"] = freq
-                ROT2.append(d)
-                cnt += 1
-            wb.close()
-            print(f"ROT2 loaded {fn} -> {cnt}, total {len(ROT2)}")
-            return
-        except Exception as e:
-            print(f"ROT2 load fail {fn}: {e}")
-    print("ROT2 FILE MISSING: egypt_shipping_lines_unified_single_sheet1111111111.xlsx")
+        total += LOAD_ONE_ROT2_FILE(fn)
+    if total == 0:
+        print("ROT2 FILE MISSING: no egypt_shipping file found")
+    else:
+        print(f"ROT2 MERGED TOTAL: {len(ROT2)} from {len(cands)} files")
 LOAD_ROT2_FILE()
 def SROT2(q):
     q = (q or "").strip()
@@ -666,7 +687,7 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 📦 GPC: اكتب GPC Airbrushes او GPC + الاسم او الكود
 📜 التعريفة: اكتب 8420 او 84 او اسم الصنف - مثال: مروحة - او 4802 / 48.02
 🏢 شركات: اكتب النور او رقم التسجيل
-🔄 Rotation: اكتب Alex Izmir او الاسكندرية ازمير او MSC او ميرسك او Sokhna او السخنة او New York او نيويورك او Houston او Santos
+🔄 Rotation: اكتب Alex Izmir او الاسكندرية ازمير او MSC او ميرسك او Sokhna او السخنة او New York او نيويورك او Houston او Santos او Aden او عدن او Novorossiysk
 🌍 Country: اكتب country Egypt
 🏙️ Cities: اكتب city Cairo
 💱 Currency: اكتب currency USD
