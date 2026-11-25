@@ -65,10 +65,11 @@ def MAIN_KB():
     return MK([r1, r2, r3, r4, r5, r6, r7])
 def COMP_KB():
     r1 = [B("🏢 الخاصة", "ct_pri")]
-    r2 = [B("🏛️ الحكومية", "ct_gov")]
-    r3 = [B("🌍 الاجنبية", "ct_for")]
-    r4 = [B("🏠 القايمة الرئيسية", "m_main")]
-    return MK([r1, r2, r3, r4])
+    r2 = [B("🚢 وكلاء الشحن", "ct_agent")]
+    r3 = [B("🏛️ الحكومية", "ct_gov")]
+    r4 = [B("🌍 الاجنبية", "ct_for")]
+    r5 = [B("🏠 القايمة الرئيسية", "m_main")]
+    return MK([r1, r2, r3, r4, r5])
 def LCAT_KB(k):
     r1 = [B("📩 Booking", "lc_" + k + "_BK")]
     r1.append(B("🧾 Invoice", "lc_" + k + "_IN"))
@@ -162,16 +163,34 @@ else:
 
 CL = []
 CBR = {}
-def AC(n, f, rg, en, ac, st, ad, ct):
+def AC(n, f, rg, en, ac, st, ad, ct, alt=""):
     n = CC(n)
-    rg = CC(rg).replace(" ", "")
+    rg = CC(rg).replace(" ", "").replace("-", "")
     if not n or not rg:
-        return
-    if rg in CBR:
         return
     if "قطاع" in n and "حكومي" in n:
         return
     if "الاسم" in n:
+        return
+    # دمج: لو رقم التسجيل موجود قبل كده، ادمج البيانات الجديدة فيه ومترجعش نسخة تانية
+    if rg in CBR:
+        ex = CBR[rg]
+        # ادمج الاسم البديل
+        if alt and alt != ex.get("name", "") and alt not in ex.get("alt", ""):
+            ex["alt"] = (ex.get("alt", "") + " / " + alt).strip(" /")
+        # ادمج الكيان لو جديد
+        if en and en not in ex.get("ent", ""):
+            ex["ent"] = (ex.get("ent", "") + " | " + en).strip(" |")
+        # لو الجديد وكيل شحن والقديم خاص، خلي التصنيف وكيل عشان يظهر في الاتنين
+        if ct == "agent" and ex.get("ct") == "private":
+            ex["ct"] = "agent"
+        # لو القديم مفيهوش عنوان والجديد فيه
+        if ad and not ex.get("ad"):
+            ex["ad"] = ad
+        if ac and not ex.get("act"):
+            ex["act"] = ac
+        if f and not ex.get("file"):
+            ex["file"] = f
         return
     it = {}
     it["name"] = n
@@ -182,36 +201,78 @@ def AC(n, f, rg, en, ac, st, ad, ct):
     it["st"] = CC(st)
     it["ad"] = CC(ad)
     it["ct"] = ct
+    it["alt"] = CC(alt)
     CL.append(it)
     CBR[rg] = it
 
-F2 = "ارقام_تسجيل_الشركات_2026.xlsx"
-if os.path.exists(F2):
-    wb = openpyxl.load_workbook(F2, read_only=True)
-    if "خاص" in wb.sheetnames:
-        for r in wb["خاص"].iter_rows(values_only=True):
-            if not r or not GV(r, 0) or not GV(r, 1):
-                continue
-            e = "خاص - " + CC(GV(r, 3))
-            AC(GV(r, 1), "", GV(r, 0), e, "", CC(GV(r, 5)), CC(GV(r, 4)), "private")
-    if "حكومي" in wb.sheetnames:
-        for r in wb["حكومي"].iter_rows(values_only=True):
-            if not r or not GV(r, 1) or not GV(r, 2):
-                continue
-            AC(GV(r, 2), "", GV(r, 1), "حكومي", "", "", CC(GV(r, 3)), "gov")
-    if "فرع اجنبي" in wb.sheetnames:
-        for r in wb["فرع اجنبي"].iter_rows(values_only=True):
-            if not r or not GV(r, 1) or not GV(r, 2):
-                continue
-            AC(GV(r, 2), "", GV(r, 1), "فرع اجنبي", "", "", CC(GV(r, 3)), "foreign")
-    wb.close()
-    print(f"Companies loaded: {len(CL)}")
+# ===== الشركات - الملفين مع بعض =====
+F2_OLD = "ارقام_تسجيل_الشركات_2026.xlsx"
+F2_NEW = "ارقام_تسجيل_الشركات_ووكلاء_الشحن_محدث_نهائي.xlsx"
+# 1) الملف القديم الاول
+if os.path.exists(F2_OLD):
+    try:
+        wb = openpyxl.load_workbook(F2_OLD, read_only=True)
+        if "خاص" in wb.sheetnames:
+            for r in wb["خاص"].iter_rows(values_only=True):
+                if not r or not GV(r, 0) or not GV(r, 1):
+                    continue
+                e = "خاص - " + CC(GV(r, 3))
+                AC(GV(r, 1), "", GV(r, 0), e, "", CC(GV(r, 5)), CC(GV(r, 4)), "private")
+        if "حكومي" in wb.sheetnames:
+            for r in wb["حكومي"].iter_rows(values_only=True):
+                if not r or not GV(r, 1) or not GV(r, 2):
+                    continue
+                AC(GV(r, 2), "", GV(r, 1), "حكومي", "", "", CC(GV(r, 3)), "gov")
+        if "فرع اجنبي" in wb.sheetnames:
+            for r in wb["فرع اجنبي"].iter_rows(values_only=True):
+                if not r or not GV(r, 1) or not GV(r, 2):
+                    continue
+                AC(GV(r, 2), "", GV(r, 1), "فرع اجنبي", "", "", CC(GV(r, 3)), "foreign")
+        wb.close()
+        print(f"Companies OLD loaded: {len(CL)}")
+    except Exception as e:
+        print(f"Companies OLD fail: {e}")
 else:
-    print(f"COMPANIES FILE MISSING: {F2}")
+    print(f"COMPANIES OLD MISSING: {F2_OLD}")
+# 2) الملف الجديد - القائمة الموحدة - بيتدمج على القديم بنفس رقم التسجيل
+if os.path.exists(F2_NEW):
+    try:
+        wb = openpyxl.load_workbook(F2_NEW, read_only=True)
+        sh = "القائمة الموحدة النهائية"
+        if sh in wb.sheetnames:
+            rows = list(wb[sh].iter_rows(values_only=True))
+            # اول 4 صفوف عناوين، البيانات من الصف الخامس
+            for r in rows[4:]:
+                if not r or not GV(r, 1) or not GV(r, 2):
+                    continue
+                nm = CC(GV(r, 1))
+                rg = CC(GV(r, 2))
+                alt = CC(GV(r, 3))
+                cat = CC(GV(r, 4))
+                src = CC(GV(r, 5))
+                if "وكيل" in cat or "توكيل" in cat:
+                    ct = "agent"
+                else:
+                    ct = "private"
+                ent = cat
+                if src:
+                    ent += " | " + src
+                AC(nm, "", rg, ent, "", "", "", ct, alt)
+            print(f"Companies NEW merged, total now: {len(CL)}")
+        else:
+            print(f"Companies NEW sheet not found: {sh} in {wb.sheetnames}")
+        wb.close()
+    except Exception as e:
+        print(f"Companies NEW fail: {e}")
+else:
+    print(f"COMPANIES NEW MISSING: {F2_NEW}")
+print(f"Companies loaded TOTAL (merged): {len(CL)}")
 
 def FC(c):
     t = "🏢 " + c["name"] + "\n"
     t += "رقم التسجيل: " + c["reg"] + "\n"
+    if c.get("alt"):
+        t += "اسم بديل / تجاري: " + c["alt"] + "\n"
     if c["file"]:
         t += "رقم الملف: " + c["file"] + "\n"
     if c["ent"]:
@@ -220,10 +281,22 @@ def FC(c):
         t += "النشاط: " + c["act"] + "\n"
     if c["ad"]:
         t += "العنوان: " + c["ad"] + "\n"
+    # وضح هو جاي من انهي ملف
+    if "وكيل" in c.get("ent", ""):
+        t += "التصنيف: 🚢 وكيل شحن / توكيل ملاحي\n"
     return t.strip()
 
 def GC(q, ct):
-    out = [c for c in CL if not ct or c["ct"] == ct]
+    # لو ct = agent هات الوكلاء بس، لو private هات الخاصة + اللي جايين من الملف الجديد موردين
+    # لو ct فاضي هات الكل
+    if ct == "agent":
+        out = [c for c in CL if c["ct"] == "agent"]
+    elif ct == "private":
+        out = [c for c in CL if c["ct"] == "private"]
+    elif ct:
+        out = [c for c in CL if c["ct"] == ct]
+    else:
+        out = list(CL)
     nq = NA(q)
     if not nq:
         return out
@@ -231,16 +304,18 @@ def GC(q, ct):
     o = []
     for c in out:
         nn = NA(c["name"])
-        na = NA(c["act"])
+        na = NA(c.get("act", ""))
+        ne = NA(c.get("ent", ""))
+        nalt = NA(c.get("alt", ""))
         reg = str(c["reg"]).replace(" ", "")
         if nq.replace(" ", "") in reg or reg in nq.replace(" ", ""):
             o.append(c)
             continue
         if words:
-            if any(w in nn or w in na for w in words):
+            if any(w in nn or w in na or w in ne or w in nalt for w in words):
                 o.append(c)
         else:
-            if nq in nn or nq in na:
+            if nq in nn or nq in na or nq in ne or nq in nalt:
                 o.append(c)
     return o
 
@@ -520,6 +595,7 @@ LINE_AR_EN = {
     "بي اي ال": "pil", "pil": "بي اي ال",
     "وان هاي": "wan hai", "wan hai": "وان هاي",
     "يانج مينج": "yang ming", "yang ming": "يانج مينج",
+    "ymx": "yang ming", "ym": "yang ming", "yml": "yang ming",
     "توركون": "turkon", "turkon": "توركون",
     "تاروس": "tarros", "tarros": "تاروس",
     "جريمالدي": "grimaldi", "grimaldi": "جريمالدي",
@@ -690,7 +766,7 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 🚢 توكيلات: اكتب MAERSK او ميرسك
 📦 GPC: اكتب GPC Airbrushes او GPC + الاسم او الكود
 📜 التعريفة: اكتب 8420 او 84 او اسم الصنف - مثال: مروحة - او 4802 / 48.02
-🏢 شركات: اكتب النور او رقم التسجيل
+🏢 شركات: اكتب النور او رقم التسجيل - وكيل شحن اكتب ARKAS او HAPAG او رقم التسجيل 242755704
 🔄 Rotation: اكتب Alex Izmir او الاسكندرية ازمير او MSC او ميرسك او Sokhna او السخنة او New York او نيويورك او Houston او Santos او Aden او عدن او Novorossiysk
 🌍 Country: اكتب country Egypt
 🏙️ Cities: اكتب city Cairo
@@ -1072,6 +1148,10 @@ async def BTN(update, ctx):
         ctx.user_data["ct"] = "private"
         await SEND(q, ctx, "comp", 0, "")
         return
+    if d == "ct_agent":
+        ctx.user_data["ct"] = "agent"
+        await SEND(q, ctx, "comp", 0, "")
+        return
     if d == "ct_gov":
         ctx.user_data["ct"] = "gov"
         await SEND(q, ctx, "comp", 0, "")
@@ -1286,6 +1366,10 @@ async def HANDLE(update, ctx):
         return
     if bare == "خاصة" or bare == "private":
         ctx.user_data["ct"] = "private"
+        await SEND(update, ctx, "comp", 0, "")
+        return
+    if bare in ["وكلاء الشحن", "وكلاء", "وكيل شحن", "agent", "agents"]:
+        ctx.user_data["ct"] = "agent"
         await SEND(update, ctx, "comp", 0, "")
         return
     if bare == "حكومية" or bare == "gov":
