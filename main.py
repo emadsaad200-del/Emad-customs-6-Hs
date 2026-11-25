@@ -172,19 +172,14 @@ def AC(n, f, rg, en, ac, st, ad, ct, alt=""):
         return
     if "الاسم" in n:
         return
-    # دمج: لو رقم التسجيل موجود قبل كده، ادمج البيانات الجديدة فيه ومترجعش نسخة تانية
     if rg in CBR:
         ex = CBR[rg]
-        # ادمج الاسم البديل
         if alt and alt != ex.get("name", "") and alt not in ex.get("alt", ""):
             ex["alt"] = (ex.get("alt", "") + " / " + alt).strip(" /")
-        # ادمج الكيان لو جديد
         if en and en not in ex.get("ent", ""):
             ex["ent"] = (ex.get("ent", "") + " | " + en).strip(" |")
-        # لو الجديد وكيل شحن والقديم خاص، خلي التصنيف وكيل عشان يظهر في الاتنين
         if ct == "agent" and ex.get("ct") == "private":
             ex["ct"] = "agent"
-        # لو القديم مفيهوش عنوان والجديد فيه
         if ad and not ex.get("ad"):
             ex["ad"] = ad
         if ac and not ex.get("act"):
@@ -208,7 +203,6 @@ def AC(n, f, rg, en, ac, st, ad, ct, alt=""):
 # ===== الشركات - الملفين مع بعض =====
 F2_OLD = "ارقام_تسجيل_الشركات_2026.xlsx"
 F2_NEW = "ارقام_تسجيل_الشركات_ووكلاء_الشحن_محدث_نهائي.xlsx"
-# 1) الملف القديم الاول
 if os.path.exists(F2_OLD):
     try:
         wb = openpyxl.load_workbook(F2_OLD, read_only=True)
@@ -234,14 +228,12 @@ if os.path.exists(F2_OLD):
         print(f"Companies OLD fail: {e}")
 else:
     print(f"COMPANIES OLD MISSING: {F2_OLD}")
-# 2) الملف الجديد - القائمة الموحدة - بيتدمج على القديم بنفس رقم التسجيل
 if os.path.exists(F2_NEW):
     try:
         wb = openpyxl.load_workbook(F2_NEW, read_only=True)
         sh = "القائمة الموحدة النهائية"
         if sh in wb.sheetnames:
             rows = list(wb[sh].iter_rows(values_only=True))
-            # اول 4 صفوف عناوين، البيانات من الصف الخامس
             for r in rows[4:]:
                 if not r or not GV(r, 1) or not GV(r, 2):
                     continue
@@ -281,14 +273,11 @@ def FC(c):
         t += "النشاط: " + c["act"] + "\n"
     if c["ad"]:
         t += "العنوان: " + c["ad"] + "\n"
-    # وضح هو جاي من انهي ملف
     if "وكيل" in c.get("ent", ""):
         t += "التصنيف: 🚢 وكيل شحن / توكيل ملاحي\n"
     return t.strip()
 
 def GC(q, ct):
-    # لو ct = agent هات الوكلاء بس، لو private هات الخاصة + اللي جايين من الملف الجديد موردين
-    # لو ct فاضي هات الكل
     if ct == "agent":
         out = [c for c in CL if c["ct"] == "agent"]
     elif ct == "private":
@@ -1480,8 +1469,20 @@ async def HANDLE(update, ctx):
             return
         await SEND(update, ctx, "cities", 0, qq)
         return
+    # === التعديل المهم: الرقم يجرب الشركات الاول قبل التعريفة ===
     if re.match(r"^[\d\.\s\-]+$", text.strip()):
         SAVE_RECENT(ctx, text)
+        qd = text.strip().replace(" ", "").replace("-", "").replace(".", "")
+        if qd in CBR:
+            await update.message.reply_text(FC(CBR[qd]))
+            return
+        cand = [c for c in CL if qd in c["reg"] or c["reg"] in qd]
+        if cand:
+            if len(cand) == 1:
+                await update.message.reply_text(FC(cand[0]))
+                return
+            await SEND(update, ctx, "comp", 0, text.strip())
+            return
         rs = ST(text.strip())
         if rs:
             if len(rs) == 1:
@@ -1489,7 +1490,7 @@ async def HANDLE(update, ctx):
                 return
             await SEND(update, ctx, "tariff", 0, text.strip())
             return
-        await update.message.reply_text("📜 ملقيتش بند")
+        await update.message.reply_text("📜 ملقيتش بند / شركة")
         return
     ps = text.strip().split()
     if len(ps) == 2:
