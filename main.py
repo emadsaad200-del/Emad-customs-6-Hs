@@ -77,6 +77,14 @@ def LCAT_KB(k):
     r3 = [B("🏠 القايمة الرئيسية", "m_main")]
     return MK([r1, r2, r3])
 
+# === NEW: زرار ادارة المستندات للادمن ===
+def DOCS_ADMIN_KB():
+    r1 = [B("➕ اضافة مستند", "docs_add")]
+    r2 = [B("📋 قائمة المستندات", "docs_list")]
+    r3 = [B("🗑️ حذف كل المستندات", "docs_del_all")]
+    r4 = [B("🏠 القايمة الرئيسية", "m_main")]
+    return MK([r1, r2, r3, r4])
+
 BI = {}
 BC = {}
 BA = {}
@@ -848,6 +856,44 @@ def SREF(kind, q):
             out.append(x)
     return out
 
+# === NEW: دوال مساعدة للمستندات - للادمن فقط ===
+def DEL_ONE_DOC(num):
+    ds = LJ("docs_index.json", [])
+    new_ds = []
+    found = False
+    for x in ds:
+        if x["num"] == num:
+            found = True
+            try:
+                if os.path.exists(x["path"]):
+                    os.remove(x["path"])
+            except:
+                pass
+        else:
+            new_ds.append(x)
+    if found:
+        SJ("docs_index.json", new_ds)
+    return found
+def DEL_ALL_DOCS():
+    ds = LJ("docs_index.json", [])
+    for x in ds:
+        try:
+            if os.path.exists(x["path"]):
+                os.remove(x["path"])
+        except:
+            pass
+    SJ("docs_index.json", [])
+    return len(ds)
+def LIST_DOCS_TXT():
+    ds = LJ("docs_index.json", [])
+    if not ds:
+        return "📄 مفيش مستندات لسه"
+    t = "📄 قائمة المستندات:\n\n"
+    for x in sorted(ds, key=lambda y: y["num"]):
+        t += f"{x['num']} - {x['name']}\n"
+    t += "\nاكتب: تزيل 1 عشان تنزل المستند"
+    return t
+
 async def SEND_END_IMAGE(ctx, chat_id):
     try:
         ud = None
@@ -1123,6 +1169,36 @@ async def BTN(update, ctx):
     if not OK(uid):
         await q.message.reply_text("⏳ استنى الادمن يقبلك الاول، ابعت /start")
         return
+    # === NEW: ازرار ادارة المستندات - للادمن فقط ===
+    if d == "docs_add":
+        if str(uid) != str(ADM):
+            await q.message.reply_text("❌ اضافة المستندات للادمن بس")
+            return
+        await q.message.reply_text("📄 ابعت الصورة أو الـ PDF واكتب عليها اسم المستند في الكابشن\nمثال: منشور 28")
+        return
+    if d == "docs_list":
+        await q.message.reply_text(LIST_DOCS_TXT())
+        return
+    if d == "docs_del_all":
+        if str(uid) != str(ADM):
+            await q.message.reply_text("❌ للادمن بس")
+            return
+        n = DEL_ALL_DOCS()
+        await q.message.reply_text(f"✅ اتمسح كل المستندات ({n} مستند)")
+        return
+    if d.startswith("docs_del_"):
+        if str(uid) != str(ADM):
+            await q.message.reply_text("❌ للادمن بس")
+            return
+        try:
+            num = int(d.split("_")[2])
+        except:
+            return
+        if DEL_ONE_DOC(num):
+            await q.message.reply_text(f"✅ اتمسح المستند رقم {num}")
+        else:
+            await q.message.reply_text("مفيش مستند بالرقم ده")
+        return
     if d == "m_main":
         await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
@@ -1266,7 +1342,12 @@ async def BTN(update, ctx):
         if 0 <= i < len(lst):
             x = lst[i]
             try:
-                await q.message.reply_document(document=open(x["path"], "rb"), caption=x["name"])
+                # === NEW: لو ادمن، اظهرله زرار حذف مع المستند ===
+                if str(uid) == str(ADM):
+                    kb = MK([[B("🗑️ حذف المستند ده", "docs_del_" + str(x["num"]))], [B("🏠 القايمة الرئيسية", "m_main")]])
+                    await q.message.reply_document(document=open(x["path"], "rb"), caption=x["name"], reply_markup=kb)
+                else:
+                    await q.message.reply_document(document=open(x["path"], "rb"), caption=x["name"])
             except:
                 await q.message.reply_text("مفيش مستند")
         return
@@ -1293,22 +1374,47 @@ async def BTN(update, ctx):
         return
 
 async def SAVE_DOC(update, ctx):
+    # === NEW: اضافة مستند - للادمن فقط - نفس القديم + توضيح ===
     if str(update.message.from_user.id) != str(ADM):
+        await update.message.reply_text("❌ اضافة المستندات للادمن بس")
         return
     cap = (update.message.caption or "").strip()
+    # === NEW: لو الادمن بعت صورة النهاية ===
+    if cap in ["صورة النهاية", "end", "end_image", "تغيير صورة النهاية"]:
+        f2 = None
+        if update.message.photo:
+            f2 = await update.message.photo[-1].get_file()
+        if f2:
+            await f2.download_to_drive(END_IMG)
+            await update.message.reply_text("✅ اتغيرت صورة النهاية بنجاح")
+        return
+    # === OLD: نفس منطقك القديم ===
     if not cap:
         cap = "بدون اسم"
     f = None
     ext = "jpg"
     if update.message.photo:
         f = await update.message.photo[-1].get_file()
+        ext = "jpg"
     elif update.message.document:
         f = await update.message.document.get_file()
-        ext = "pdf"
+        # === NEW: خد الامتداد الاصلي ===
+        fname = update.message.document.file_name or ""
+        if "." in fname:
+            ext = fname.split(".")[-1].lower()
+        else:
+            ext = "pdf"
     else:
         return
     ds = LJ("docs_index.json", [])
+    # === OLD: num = len + 1 ===
+    # === NEW: لو فيه رقم محذوف، استخدمه الاول عشان الترتيب يفضل مظبوط ===
     num = len(ds) + 1
+    used = [x["num"] for x in ds]
+    for i in range(1, len(ds) + 2):
+        if i not in used:
+            num = i
+            break
     fn = "docs/" + str(num) + "." + ext
     await f.download_to_drive(fn)
     d = {}
@@ -1316,8 +1422,10 @@ async def SAVE_DOC(update, ctx):
     d["name"] = cap
     d["path"] = fn
     ds.append(d)
+    ds = sorted(ds, key=lambda x: x["num"])
     SJ("docs_index.json", ds)
-    await update.message.reply_text("اتحفظ " + str(num))
+    # === OLD: كان بيقول "اتحفظ 1" بس - NEW: بقى يقول الاسم والرقم ===
+    await update.message.reply_text(f"✅ اتحفظ المستند رقم {num}\n📄 الاسم: {cap}\nاكتب: تزيل {num} عشان تنزله")
 
 async def HANDLE(update, ctx):
     us = update.message.from_user
@@ -1333,6 +1441,44 @@ async def HANDLE(update, ctx):
         await update.message.reply_text("العفو، نورتنا ❤️")
         await SEND_END_IMAGE(ctx, update.message.chat_id)
         return
+    # === NEW: ادارة المستندات - اضافة / حذف - للادمن فقط - قبل تزيل ===
+    if bare in ["اضافة مستند", "اضف مستند", "إضافة مستند", "اضافة مستندات"]:
+        if str(uid) != str(ADM):
+            await update.message.reply_text("❌ اضافة المستندات للادمن بس")
+            return
+        await update.message.reply_text("📄 ابعت الصورة أو الـ PDF واكتب عليها اسم المستند في الكابشن\nمثال: منشور 28", reply_markup=DOCS_ADMIN_KB())
+        return
+    if bare in ["ادارة المستندات", "إدارة المستندات", "مستندات الادمن"]:
+        if str(uid) != str(ADM):
+            await update.message.reply_text("❌ للادمن بس")
+            return
+        await update.message.reply_text("📄 ادارة المستندات:", reply_markup=DOCS_ADMIN_KB())
+        return
+    if bare in ["قائمة المستندات", "قايمة المستندات", "عرض المستندات", "list docs"]:
+        await update.message.reply_text(LIST_DOCS_TXT())
+        return
+    if text.strip().startswith("حذف مستند") or text.strip().startswith("حذف تزيل") or text.strip().startswith("مسح مستند") or text.strip().startswith("حذف المستند"):
+        if str(uid) != str(ADM):
+            await update.message.reply_text("❌ حذف المستندات للادمن بس")
+            return
+        m = re.search(r"(\d+)", text)
+        if not m:
+            await update.message.reply_text("اكتب: حذف مستند 1")
+            return
+        num = int(m.group(1))
+        if DEL_ONE_DOC(num):
+            await update.message.reply_text(f"✅ اتمسح المستند رقم {num}")
+        else:
+            await update.message.reply_text("مفيش مستند بالرقم ده")
+        return
+    if text.strip() in ["حذف كل المستندات", "مسح كل المستندات", "حذف جميع المستندات"]:
+        if str(uid) != str(ADM):
+            await update.message.reply_text("❌ للادمن بس")
+            return
+        n = DEL_ALL_DOCS()
+        await update.message.reply_text(f"✅ اتمسح كل المستندات ({n} مستند) - تقدر تبدأ ترفع من جديد")
+        return
+    # === OLD: تزيل - زي ما هو بالظبط ===
     if "تزيل" in text or "download" in low:
         SAVE_RECENT(ctx, text)
         m = re.search(r"(\d+)", text)
