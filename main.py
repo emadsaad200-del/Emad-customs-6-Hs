@@ -61,8 +61,9 @@ def MAIN_KB():
     r4 = [B("🌍 Country", "m_country"), B("🏙️ Cities", "m_cities")]
     r5 = [B("💱 Currency", "m_cur"), B("📦 Package", "m_pack")]
     r6 = [B("⚖️ UOM", "m_uom"), B("🕐 اخر بحث", "m_recent")]
-    r7 = [B("❓ مساعدة", "m_help")]
-    return MK([r1, r2, r3, r4, r5, r6, r7])
+    r7 = [B("🧮 حسبة الرسوم التقريبية", "m_calc")]
+    r8 = [B("❓ مساعدة", "m_help")]
+    return MK([r1, r2, r3, r4, r5, r6, r7, r8])
 def COMP_KB():
     r1 = [B("🏢 الخاصة", "ct_pri")]
     r2 = [B("🚢 وكلاء الشحن", "ct_agent")]
@@ -830,9 +831,60 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 📦 Package: اكتب package صندوق او package Box
 ⚖️ UOM: اكتب uom كيلو او uom KG او uom طن
 📄 مستندات: اكتب تزيل 1
+🧮 حسبة الرسوم التقريبية: دوس عليها - البوت هيسألك مبلغ الفاتورة - نوع العملة - التعاقد - فئة البند - سعر التحويل
 🕐 اخر بحث: بيجيب اخر حاجة بحثت عنها
 القايمة: اكتب menu
 """
+
+# ===== NEW: حسبة الرسوم التقريبية - من ملف رسوم100.xlsx - المعادلة محفوظة جوه الكود =====
+# المعادلة:
+# 1) قيمة الفاتورة بالمصري = مبلغ الفاتورة × سعر التحويل
+# 2) الجمارك = فئة البند % × قيمة الفاتورة بالمصري
+# 3) قيمة مضافة 14% = 14% × ( قيمة الفاتورة بالمصري + الجمارك )
+# 4) ارباح تجارية 1% = 1% × قيمة الفاتورة بالمصري
+# 5) اجمالي الرسوم = جمارك + قيمة مضافة + ارباح + مصاريف اخرى
+CALC_CONTRACTS = ["CIF", "C&F", "FCA", "FOB 12.5%", "FOB نولون", "EXW 12.5%", "EXW نولون", "FOB Free"]
+CALC_CURS = ["USD", "EUR", "GBP", "SAR", "AED", "CNY", "JPY", "EGP"]
+def CALC_KB_CONTRACT():
+    rows = []
+    for c in CALC_CONTRACTS:
+        rows.append([B(c, "calc_ct_" + c)])
+    rows.append([B("❌ الغاء", "m_main")])
+    return MK(rows)
+def CALC_KB_CUR():
+    rows = []
+    for i in range(0, len(CALC_CURS), 4):
+        rows.append([B(c, "calc_cur_" + c) for c in CALC_CURS[i:i+4]])
+    rows.append([B("❌ الغاء", "m_main")])
+    return MK(rows)
+def CALC_RESET(ctx):
+    ctx.user_data["calc"] = {"step": "inv", "inv": 0, "cur": "", "contract": "", "duty": 0, "rate": 0, "other": 0}
+    ctx.user_data["calc_on"] = True
+def CALC_DO(d):
+    inv_egp = d["inv"] * d["rate"]
+    customs = inv_egp * (d["duty"] / 100)
+    vat = (inv_egp + customs) * 0.14
+    profit = inv_egp * 0.01
+    total = customs + vat + profit + d["other"]
+    return {"inv_egp": inv_egp, "cif": inv_egp, "customs": customs, "vat": vat, "profit": profit, "total": total}
+def CALC_TXT(d, r):
+    t = "🧮 حسبة الرسوم التقريبية\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += f"💰 مبلغ الفاتورة: {d['inv']:,.2f} {d['cur']}\n"
+    t += f"💱 سعر التحويل: {d['rate']}\n"
+    t += f"🇪🇬 قيمة الفاتورة بالمصري: {r['inv_egp']:,.2f} جنيه\n"
+    t += f"📦 التعاقد: {d['contract']}\n"
+    t += f"📜 فئة البند: {d['duty']}%\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += f"🏛️ الجمارك ({d['duty']}%): {r['customs']:,.2f} جنيه\n"
+    t += f"🧾 قيمة مضافة 14%: {r['vat']:,.2f} جنيه\n"
+    t += f"💼 أرباح تجارية 1%: {r['profit']:,.2f} جنيه\n"
+    if d['other']:
+        t += f"📦 مصاريف أخرى: {d['other']:,.2f} جنيه\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += f"✅ إجمالي الرسوم التقريبية: {r['total']:,.2f} جنيه\n"
+    t += "\n⚠️ حسبة تقريبية"
+    return t
 
 def LU():
     return LJ("users.json", {})
@@ -1278,7 +1330,25 @@ async def BTN(update, ctx):
             await q.message.reply_text("مفيش مستند بالرقم ده")
         return
     if d == "m_main":
+        ctx.user_data["calc_on"] = False
         await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
+        return
+    # ===== NEW: حسبة الرسوم =====
+    if d == "m_calc":
+        CALC_RESET(ctx)
+        await q.message.reply_text("🧮 حسبة الرسوم التقريبية\n\nاكتب مبلغ الفاتورة بالعملة الخارجية:\nمثال: 67500", reply_markup=MK([[B("❌ الغاء", "m_main")]]))
+        return
+    if d.startswith("calc_ct_"):
+        c = d.replace("calc_ct_", "")
+        ctx.user_data["calc"]["contract"] = c
+        ctx.user_data["calc"]["step"] = "duty"
+        await q.message.reply_text(f"📦 التعاقد: {c}\n\nاكتب فئة البند / الجمارك %:\nمثال: 2  يعني 2%\nلو معفي اكتب 0")
+        return
+    if d.startswith("calc_cur_"):
+        c = d.replace("calc_cur_", "")
+        ctx.user_data["calc"]["cur"] = c
+        ctx.user_data["calc"]["step"] = "contract"
+        await q.message.reply_text(f"💱 العملة: {c}\n\nاختار التعاقد:", reply_markup=CALC_KB_CONTRACT())
         return
     if d == "m_lines":
         await SEND(q, ctx, "line", 0, "")
@@ -1507,6 +1577,49 @@ async def HANDLE(update, ctx):
     if not OK(uid):
         await update.message.reply_text("⏳ استنى الادمن يقبلك الاول، ابعت /start")
         return
+    # ===== NEW: حسبة الرسوم - لازم تكون قبل اي بحث تاني =====
+    if ctx.user_data.get("calc_on"):
+        calc = ctx.user_data.get("calc", {})
+        step = calc.get("step", "inv")
+        txt = text.strip().replace(",", "").replace("جنيه", "").replace("ج", "")
+        if NA(text) in ["الغاء", "cancel", "menu", "القايمه", "القايمة"]:
+            ctx.user_data["calc_on"] = False
+            await update.message.reply_text("اتلغت الحسبة", reply_markup=MAIN_KB())
+            return
+        try:
+            val = float(txt)
+        except:
+            val = None
+        if step == "inv":
+            if val is None or val <= 0:
+                await update.message.reply_text("اكتب مبلغ الفاتورة صح، مثال: 67500")
+                return
+            calc["inv"] = val; calc["step"] = "cur"
+            await update.message.reply_text(f"💰 الفاتورة: {val:,.2f}\n\nاختار نوع العملة:", reply_markup=CALC_KB_CUR())
+            return
+        if step == "duty":
+            if val is None or val < 0 or val > 100:
+                await update.message.reply_text("اكتب فئة البند % صح، مثال: 2 او 0 او 10")
+                return
+            calc["duty"] = val; calc["step"] = "rate"
+            await update.message.reply_text(f"📜 فئة البند: {val}%\n\nاكتب سعر التحويل:\nمثال: 47.38")
+            return
+        if step == "rate":
+            if val is None or val <= 0:
+                await update.message.reply_text("اكتب سعر التحويل صح، مثال: 47.38")
+                return
+            calc["rate"] = val; calc["step"] = "other"
+            await update.message.reply_text(f"💱 سعر التحويل: {val}\n\nاكتب مصاريف أخرى بالمصري:\nلو مفيش اكتب 0")
+            return
+        if step == "other":
+            if val is None or val < 0:
+                await update.message.reply_text("اكتب مصاريف أخرى صح، او 0")
+                return
+            calc["other"] = val
+            ctx.user_data["calc_on"] = False
+            r = CALC_DO(calc)
+            await update.message.reply_text(CALC_TXT(calc, r), reply_markup=MAIN_KB())
+            return
     if NA(text) in [NA(w) for w in END_WORDS]:
         await update.message.reply_text("العفو، نورتنا ❤️")
         await SEND_END_IMAGE(ctx, update.message.chat_id)
