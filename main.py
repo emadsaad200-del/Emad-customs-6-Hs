@@ -837,12 +837,6 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 """
 
 # ===== NEW: حسبة الرسوم التقريبية - من ملف رسوم100.xlsx - المعادلة محفوظة جوه الكود =====
-# المعادلة:
-# 1) قيمة الفاتورة بالمصري = مبلغ الفاتورة × سعر التحويل
-# 2) الجمارك = فئة البند % × قيمة الفاتورة بالمصري
-# 3) قيمة مضافة 14% = 14% × ( قيمة الفاتورة بالمصري + الجمارك )
-# 4) ارباح تجارية 1% = 1% × قيمة الفاتورة بالمصري
-# 5) اجمالي الرسوم = جمارك + قيمة مضافة + ارباح + مصاريف اخرى
 CALC_CONTRACTS = ["CIF", "C&F", "FCA", "FOB 12.5%", "FOB نولون", "EXW 12.5%", "EXW نولون", "FOB Free"]
 CALC_CURS = ["USD", "EUR", "GBP", "SAR", "AED", "CNY", "JPY", "EGP"]
 def CALC_KB_CONTRACT():
@@ -1024,6 +1018,25 @@ def LIST_DOCS_TXT():
     t += "\nاكتب: تزيل 1 عشان تنزل المستند"
     return t
 
+# ===== NEW: رسالة تعريف الاشتراك قبل القبول - 150 جم في الشهر =====
+SUB_INFO_TXT = """👋 أهلا بيك في Captain Emad Customs Bot
+
+البوت ده خدمة مدفوعة باشتراك رمزي 💰
+
+الاشتراك: 150 جنيه في الشهر فقط
+
+بيوفرلك:
+🚢 توكيلات وايميلات
+📜 التعريفة الجمركية
+📦 GPC
+🏢 بيانات الشركات
+🔄 Rotation
+🧮 حسبة الرسوم الجمركية
+
+لو حابب تشترك، ابعتلنا هنا وهنبعتلك طريقة الدفع ✅
+ولو مش حابب، مفيش مشكلة نورتنا ❤️
+"""
+
 async def SEND_END_IMAGE(ctx, chat_id):
     try:
         ud = None
@@ -1168,8 +1181,9 @@ async def SEND_ADMIN_REQUEST(ctx, us, code):
     txt += f"🔗 اليوزرنيم: {username}\n"
     txt += f"🆔 ID: {us.id}\n"
     txt += f"🎟️ الكود: {code}\n"
-    txt += f"📊 الحالة: pending"
-    kb = MK([[B("✅ قبول", "accept_" + str(us.id)), B("❌ رفض", "reject_" + str(us.id))]])
+    txt += f"📊 الحالة: pending\n"
+    txt += f"👆 اضغط للمراسلة: tg://user?id={us.id}\n"
+    kb = MK([[B("✅ قبول", "accept_" + str(us.id)), B("❌ رفض", "reject_" + str(us.id))], [B("💰 ابعت تفاصيل الاشتراك", "subinfo_" + str(us.id))]])
     try:
         await ctx.bot.send_message(chat_id=int(ADM), text=txt, reply_markup=kb)
     except Exception as e:
@@ -1231,8 +1245,9 @@ async def USERS(update, ctx):
             txt += f"🔗 اليوزرنيم: {d.get('username','-')}\n"
             txt += f"🆔 ID: {uid}\n"
             txt += f"🎟️ الكود: {d.get('code','-')}\n"
-            txt += f"📊 الحالة: pending"
-            kb = MK([[B("✅ قبول", "accept_" + uid), B("❌ رفض", "reject_" + uid)]])
+            txt += f"📊 الحالة: pending\n"
+            txt += f"👆 اضغط للمراسلة: tg://user?id={uid}\n"
+            kb = MK([[B("✅ قبول", "accept_" + uid), B("❌ رفض", "reject_" + uid)], [B("💰 ابعت تفاصيل الاشتراك", "subinfo_" + uid)]])
             await update.message.reply_text(txt, reply_markup=kb)
     if others:
         await update.message.reply_text(f"👥 باقي اليوزرز ({len(others)}):")
@@ -1258,6 +1273,17 @@ async def BTN(update, ctx):
     d = q.data
     uid = q.from_user.id
     RESET_END_TIMER(ctx)
+    if d.startswith("subinfo_"):
+        if str(uid) != str(ADM):
+            await q.message.reply_text("انت مش الادمن")
+            return
+        uid2 = d.split("_")[1]
+        try:
+            await ctx.bot.send_message(chat_id=int(uid2), text=SUB_INFO_TXT)
+            await q.message.reply_text("✅ اتبعتله رسالة الاشتراك (150 جنيه في الشهر)، استنى رده قبل ما تقبله")
+        except:
+            await q.message.reply_text("❌ مش عارف ابعتله، هو لسه مبعتش /start")
+        return
     if d.startswith("accept_"):
         if str(uid) != str(ADM):
             await q.message.reply_text("انت مش الادمن")
