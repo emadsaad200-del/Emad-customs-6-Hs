@@ -144,9 +144,23 @@ for f in sorted(os.listdir(".")):
         LOAD_GPC_FILE(f)
 print(f"GPC loaded: {len(BI)} items")
 
+# ===== REF - قديم + جديد مع بعض - من غير ما نمسح القديم =====
 REF = {}
 for kind in ["cities", "country", "currency", "package", "uom"]:
     REF[kind] = {}
+
+def ADD_REF(kind, code, name):
+    code = str(code or "").strip().upper()
+    name = str(name or "").strip()
+    if not code or not name:
+        return
+    if code in ["CODE", "CITYCODE", "CURRENCY", "NAME"]:
+        return
+    if code in REF[kind]:
+        return
+    REF[kind][code] = {"code": code, "name": name}
+
+# --- 1. القديم زي ما هو بالظبط ---
 if os.path.exists("cities.xlsx"):
     wb = openpyxl.load_workbook("cities.xlsx", read_only=True)
     for kind, sh in [("cities", "City List"), ("country", "Country List"), ("currency", "Currency List"), ("package", "Package Type list"), ("uom", "UOM List")]:
@@ -156,18 +170,63 @@ if os.path.exists("cities.xlsx"):
             if not r or not GV(r, 0) or not GV(r, 1):
                 continue
             if kind == "currency":
-                c = str(GV(r, 1)).strip().upper()
-                n = str(GV(r, 0)).strip()
+                ADD_REF(kind, GV(r, 1), GV(r, 0))
             else:
-                c = str(GV(r, 0)).strip().upper()
-                n = str(GV(r, 1)).strip()
-            if c in REF[kind]:
-                continue
-            REF[kind][c] = {"code": c, "name": n}
+                ADD_REF(kind, GV(r, 0), GV(r, 1))
     wb.close()
-    print(f"REF loaded cities.xlsx")
+    print(f"REF OLD loaded cities.xlsx -> { {k: len(v) for k, v in REF.items()} }")
 else:
     print("REF FILE MISSING: cities.xlsx")
+
+# --- 2. الجديد - نفس طريقة القديم - بيدمج معاه ---
+def LOAD_NEW_REF_FILE(fn, kind, code_col, name_col):
+    if not os.path.exists(fn):
+        print(f"REF NEW MISSING: {fn}")
+        return 0
+    try:
+        wb = openpyxl.load_workbook(fn, read_only=True)
+        ws = wb[wb.sheetnames[0]]
+        before = len(REF[kind])
+        for r in ws.iter_rows(values_only=True):
+            if not r:
+                continue
+            ADD_REF(kind, GV(r, code_col), GV(r, name_col))
+        wb.close()
+        added = len(REF[kind]) - before
+        print(f"REF NEW loaded {fn} -> +{added} total {kind}: {len(REF[kind])}")
+        return added
+    except Exception as e:
+        print(f"REF NEW fail {fn}: {e}")
+        return 0
+
+LOAD_NEW_REF_FILE("Country_List.xlsx", "country", 0, 1)
+LOAD_NEW_REF_FILE("Cities.xlsx", "cities", 0, 1)
+LOAD_NEW_REF_FILE("Currency_List.xlsx", "currency", 1, 0)
+LOAD_NEW_REF_FILE("Package_Type_list.xlsx", "package", 0, 1)
+LOAD_NEW_REF_FILE("Unit_of_measure_list.xlsx", "uom", 0, 1)
+print(f"REF MERGED TOTAL: country={len(REF['country'])} cities={len(REF['cities'])} currency={len(REF['currency'])} package={len(REF['package'])} uom={len(REF['uom'])}")
+
+# ===== ترجمة عربي <-> انجليزي للـ REF - عشان البحث يطلع عربي وانجليزي =====
+REF_AR = {
+    "مصر": "EGYPT", "امريكا": "UNITED STATES", "الصين": "CHINA", "السعوديه": "SAUDI ARABIA", "السعودية": "SAUDI ARABIA",
+    "الامارات": "UNITED ARAB EMIRATES", "المانيا": "GERMANY", "فرنسا": "FRANCE", "ايطاليا": "ITALY", "اسبانيا": "SPAIN",
+    "انجلترا": "UNITED KINGDOM", "بريطانيا": "UNITED KINGDOM", "تركيا": "TURKEY", "الهند": "INDIA",
+    "اليابان": "JAPAN", "كوريا": "KOREA", "روسيا": "RUSSIAN FEDERATION", "البرازيل": "BRAZIL", "كندا": "CANADA",
+    "استراليا": "AUSTRALIA", "هولندا": "NETHERLANDS", "بلجيكا": "BELGIUM", "سويسرا": "SWITZERLAND",
+    "القاهره": "CAIRO", "القاهرة": "CAIRO", "الاسكندريه": "ALEXANDRIA", "الاسكندرية": "ALEXANDRIA",
+    "بورسعيد": "PORT SAID", "دمياط": "DAMIETTA", "السويس": "SUEZ", "السخنه": "SOKHNA", "السخنة": "SOKHNA",
+    "دبي": "DUBAI", "الرياض": "RIYADH", "جده": "JEDDAH", "جدة": "JEDDAH", "الدوحه": "DOHA", "الدوحة": "DOHA",
+    "دولار": "USD", "الدولار": "USD", "يورو": "EUR", "اليورو": "EUR", "جنيه": "EGP", "الجنيه": "EGP",
+    "جنيه مصري": "EGP", "ريال": "SAR", "ريال سعودي": "SAR", "درهم": "AED", "دينار": "KWD", "ين": "JPY",
+    "صندوق": "BOX", "كرتونه": "CARTON", "كرتونة": "CARTON", "بالته": "PALLET", "بالتة": "PALLET",
+    "برميل": "DRUM", "شوال": "BAG", "كيس": "BAG", "حاويه": "CONTAINER", "حاوية": "CONTAINER",
+    "كيلو": "KG", "كيلوجرام": "KG", "طن": "TON", "متر": "METER", "قطعه": "PIECE", "قطعة": "PIECE",
+    "لتر": "LITRE", "علبه": "BOX", "حبه": "PIECE",
+}
+REF_EN_TO_AR = {}
+for _ar, _en in REF_AR.items():
+    if _en not in REF_EN_TO_AR:
+        REF_EN_TO_AR[_en] = _ar
 
 CL = []
 CBR = {}
@@ -765,11 +824,11 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 📜 التعريفة: اكتب 8420 او 84 او اسم الصنف - مثال: مروحة - او 4802 / 48.02
 🏢 شركات: اكتب النور او رقم التسجيل - وكيل شحن اكتب ARKAS او HAPAG او رقم التسجيل 242755704
 🔄 Rotation: اكتب Alex Izmir او الاسكندرية ازمير او MSC او ميرسك او Sokhna او السخنة او New York او نيويورك او Houston او Santos او Aden او عدن او Novorossiysk
-🌍 Country: اكتب country Egypt
-🏙️ Cities: اكتب city Cairo
-💱 Currency: اكتب currency USD
-📦 Package: اكتب package Box
-⚖️ UOM: اكتب uom KG
+🌍 Country: اكتب country مصر او country Egypt او country EG
+🏙️ Cities: اكتب city القاهرة او city Cairo
+💱 Currency: اكتب currency دولار او currency USD او currency جنيه
+📦 Package: اكتب package صندوق او package Box
+⚖️ UOM: اكتب uom كيلو او uom KG او uom طن
 📄 مستندات: اكتب تزيل 1
 🕐 اخر بحث: بيجيب اخر حاجة بحثت عنها
 القايمة: اكتب menu
@@ -850,11 +909,30 @@ def SREF(kind, q):
     if not q:
         return items
     nq = NA(q)
+    q_en = REF_AR.get(nq, "")
+    if not q_en:
+        q_en = REF_AR.get(nq.replace("ال", "", 1), "")
+    q_ar = REF_EN_TO_AR.get(q.upper(), "")
     out = []
     for x in items:
-        if nq in NA(x["name"]) or nq in NA(x["code"]) or q.upper() in x["code"] or nq in x["code"].lower():
+        name_n = NA(x["name"])
+        code_n = NA(x["code"])
+        if nq in name_n or nq in code_n or q.upper() in x["code"] or nq in x["code"].lower():
             out.append(x)
+            continue
+        if q_en and (NA(q_en) in name_n or q_en in x["code"]):
+            out.append(x)
+            continue
+        if q_ar and NA(q_ar) in name_n:
+            out.append(x)
+            continue
     return out
+
+def FREF(kind, it):
+    ar = REF_EN_TO_AR.get(it["name"].upper(), "")
+    if ar:
+        return f"{it['name']}\n{ar}\nالكود: {it['code']}"
+    return f"{it['name']}\nالكود: {it['code']}"
 
 # === NEW: دوال مساعدة للمستندات - للادمن فقط ===
 def DEL_ONE_DOC(num):
@@ -1342,7 +1420,6 @@ async def BTN(update, ctx):
         if 0 <= i < len(lst):
             x = lst[i]
             try:
-                # === NEW: لو ادمن، اظهرله زرار حذف مع المستند ===
                 if str(uid) == str(ADM):
                     kb = MK([[B("🗑️ حذف المستند ده", "docs_del_" + str(x["num"]))], [B("🏠 القايمة الرئيسية", "m_main")]])
                     await q.message.reply_document(document=open(x["path"], "rb"), caption=x["name"], reply_markup=kb)
@@ -1363,7 +1440,7 @@ async def BTN(update, ctx):
             lst = ctx.user_data.get("lst", [])
             if 0 <= i < len(lst):
                 it = lst[i]
-                t = it["name"] + "\n" + it["code"]
+                t = FREF(kind, it)
                 await q.message.reply_text(t)
             return
     if d.startswith("lc_"):
@@ -1374,12 +1451,10 @@ async def BTN(update, ctx):
         return
 
 async def SAVE_DOC(update, ctx):
-    # === NEW: اضافة مستند - للادمن فقط - نفس القديم + توضيح ===
     if str(update.message.from_user.id) != str(ADM):
         await update.message.reply_text("❌ اضافة المستندات للادمن بس")
         return
     cap = (update.message.caption or "").strip()
-    # === NEW: لو الادمن بعت صورة النهاية ===
     if cap in ["صورة النهاية", "end", "end_image", "تغيير صورة النهاية"]:
         f2 = None
         if update.message.photo:
@@ -1388,7 +1463,6 @@ async def SAVE_DOC(update, ctx):
             await f2.download_to_drive(END_IMG)
             await update.message.reply_text("✅ اتغيرت صورة النهاية بنجاح")
         return
-    # === OLD: نفس منطقك القديم ===
     if not cap:
         cap = "بدون اسم"
     f = None
@@ -1398,7 +1472,6 @@ async def SAVE_DOC(update, ctx):
         ext = "jpg"
     elif update.message.document:
         f = await update.message.document.get_file()
-        # === NEW: خد الامتداد الاصلي ===
         fname = update.message.document.file_name or ""
         if "." in fname:
             ext = fname.split(".")[-1].lower()
@@ -1407,8 +1480,6 @@ async def SAVE_DOC(update, ctx):
     else:
         return
     ds = LJ("docs_index.json", [])
-    # === OLD: num = len + 1 ===
-    # === NEW: لو فيه رقم محذوف، استخدمه الاول عشان الترتيب يفضل مظبوط ===
     num = len(ds) + 1
     used = [x["num"] for x in ds]
     for i in range(1, len(ds) + 2):
@@ -1424,7 +1495,6 @@ async def SAVE_DOC(update, ctx):
     ds.append(d)
     ds = sorted(ds, key=lambda x: x["num"])
     SJ("docs_index.json", ds)
-    # === OLD: كان بيقول "اتحفظ 1" بس - NEW: بقى يقول الاسم والرقم ===
     await update.message.reply_text(f"✅ اتحفظ المستند رقم {num}\n📄 الاسم: {cap}\nاكتب: تزيل {num} عشان تنزله")
 
 async def HANDLE(update, ctx):
@@ -1441,7 +1511,6 @@ async def HANDLE(update, ctx):
         await update.message.reply_text("العفو، نورتنا ❤️")
         await SEND_END_IMAGE(ctx, update.message.chat_id)
         return
-    # === NEW: ادارة المستندات - اضافة / حذف - للادمن فقط - قبل تزيل ===
     if bare in ["اضافة مستند", "اضف مستند", "إضافة مستند", "اضافة مستندات"]:
         if str(uid) != str(ADM):
             await update.message.reply_text("❌ اضافة المستندات للادمن بس")
@@ -1478,7 +1547,6 @@ async def HANDLE(update, ctx):
         n = DEL_ALL_DOCS()
         await update.message.reply_text(f"✅ اتمسح كل المستندات ({n} مستند) - تقدر تبدأ ترفع من جديد")
         return
-    # === OLD: تزيل - زي ما هو بالظبط ===
     if "تزيل" in text or "download" in low:
         SAVE_RECENT(ctx, text)
         m = re.search(r"(\d+)", text)
@@ -1563,7 +1631,7 @@ async def HANDLE(update, ctx):
             await update.message.reply_text("📦 ملقيتش عبوة")
             return
         if len(items) == 1:
-            await update.message.reply_text(items[0]["name"] + "\n" + items[0]["code"])
+            await update.message.reply_text(FREF("package", items[0]))
             return
         await SEND(update, ctx, "package", 0, qq)
         return
@@ -1575,7 +1643,7 @@ async def HANDLE(update, ctx):
             await update.message.reply_text("💱 ملقيتش عملة")
             return
         if len(items) == 1:
-            await update.message.reply_text(items[0]["name"] + "\n" + items[0]["code"])
+            await update.message.reply_text(FREF("currency", items[0]))
             return
         await SEND(update, ctx, "currency", 0, qq)
         return
@@ -1587,7 +1655,7 @@ async def HANDLE(update, ctx):
             await update.message.reply_text("⚖️ ملقيتش وحدة")
             return
         if len(items) == 1:
-            await update.message.reply_text(items[0]["name"] + "\n" + items[0]["code"])
+            await update.message.reply_text(FREF("uom", items[0]))
             return
         await SEND(update, ctx, "uom", 0, qq)
         return
@@ -1599,7 +1667,7 @@ async def HANDLE(update, ctx):
             await update.message.reply_text("🌍 ملقيتش دولة")
             return
         if len(items) == 1:
-            await update.message.reply_text(items[0]["name"] + "\n" + items[0]["code"])
+            await update.message.reply_text(FREF("country", items[0]))
             return
         await SEND(update, ctx, "country", 0, qq)
         return
@@ -1611,11 +1679,10 @@ async def HANDLE(update, ctx):
             await update.message.reply_text("🏙️ ملقيتش مدينة")
             return
         if len(items) == 1:
-            await update.message.reply_text(items[0]["name"] + "\n" + items[0]["code"])
+            await update.message.reply_text(FREF("cities", items[0]))
             return
         await SEND(update, ctx, "cities", 0, qq)
         return
-    # === التعديل المهم: الرقم يجرب الشركات الاول قبل التعريفة ===
     if re.match(r"^[\d\.\s\-]+$", text.strip()):
         SAVE_RECENT(ctx, text)
         qd = text.strip().replace(" ", "").replace("-", "").replace(".", "")
