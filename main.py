@@ -62,8 +62,9 @@ def MAIN_KB():
     r5 = [B("💱 Currency", "m_cur"), B("📦 Package", "m_pack")]
     r6 = [B("⚖️ UOM", "m_uom"), B("🕐 اخر بحث", "m_recent")]
     r7 = [B("🧮 حسبة الرسوم التقريبية", "m_calc")]
+    r7b = [B("📦 حسبة CBM", "m_cbm")]
     r8 = [B("❓ مساعدة", "m_help")]
-    return MK([r1, r2, r3, r4, r5, r6, r7, r8])
+    return MK([r1, r2, r3, r4, r5, r6, r7, r7b, r8])
 def COMP_KB():
     r1 = [B("🏢 الخاصة", "ct_pri")]
     r2 = [B("🚢 وكلاء الشحن", "ct_agent")]
@@ -78,7 +79,6 @@ def LCAT_KB(k):
     r3 = [B("🏠 القايمة الرئيسية", "m_main")]
     return MK([r1, r2, r3])
 
-# === NEW: زرار ادارة المستندات للادمن ===
 def DOCS_ADMIN_KB():
     r1 = [B("➕ اضافة مستند", "docs_add")]
     r2 = [B("📋 قائمة المستندات", "docs_list")]
@@ -145,7 +145,6 @@ for f in sorted(os.listdir(".")):
         LOAD_GPC_FILE(f)
 print(f"GPC loaded: {len(BI)} items")
 
-# ===== REF - قديم + جديد مع بعض - من غير ما نمسح القديم =====
 REF = {}
 for kind in ["cities", "country", "currency", "package", "uom"]:
     REF[kind] = {}
@@ -161,7 +160,6 @@ def ADD_REF(kind, code, name):
         return
     REF[kind][code] = {"code": code, "name": name}
 
-# --- 1. القديم زي ما هو بالظبط ---
 if os.path.exists("cities.xlsx"):
     wb = openpyxl.load_workbook("cities.xlsx", read_only=True)
     for kind, sh in [("cities", "City List"), ("country", "Country List"), ("currency", "Currency List"), ("package", "Package Type list"), ("uom", "UOM List")]:
@@ -179,7 +177,6 @@ if os.path.exists("cities.xlsx"):
 else:
     print("REF FILE MISSING: cities.xlsx")
 
-# --- 2. الجديد - نفس طريقة القديم - بيدمج معاه ---
 def LOAD_NEW_REF_FILE(fn, kind, code_col, name_col):
     if not os.path.exists(fn):
         print(f"REF NEW MISSING: {fn}")
@@ -207,7 +204,6 @@ LOAD_NEW_REF_FILE("Package_Type_list.xlsx", "package", 0, 1)
 LOAD_NEW_REF_FILE("Unit_of_measure_list.xlsx", "uom", 0, 1)
 print(f"REF MERGED TOTAL: country={len(REF['country'])} cities={len(REF['cities'])} currency={len(REF['currency'])} package={len(REF['package'])} uom={len(REF['uom'])}")
 
-# ===== ترجمة عربي <-> انجليزي للـ REF - عشان البحث يطلع عربي وانجليزي =====
 REF_AR = {
     "مصر": "EGYPT", "امريكا": "UNITED STATES", "الصين": "CHINA", "السعوديه": "SAUDI ARABIA", "السعودية": "SAUDI ARABIA",
     "الامارات": "UNITED ARAB EMIRATES", "المانيا": "GERMANY", "فرنسا": "FRANCE", "ايطاليا": "ITALY", "اسبانيا": "SPAIN",
@@ -268,7 +264,6 @@ def AC(n, f, rg, en, ac, st, ad, ct, alt=""):
     CL.append(it)
     CBR[rg] = it
 
-# ===== الشركات - الملفين مع بعض =====
 F2_OLD = "ارقام_تسجيل_الشركات_2026.xlsx"
 F2_NEW = "ارقام_تسجيل_الشركات_ووكلاء_الشحن_محدث_نهائي.xlsx"
 if os.path.exists(F2_OLD):
@@ -577,8 +572,7 @@ def FROT(rs, pol, pod):
         if r["tt"]: t += " - " + r["tt"]
         t += " | " + r["co"] + "\n"
     return t[:3500]
-
-ROT2 = []
+    ROT2 = []
 ROT2_SEEN = set()
 PORT_AR_EN = {
     "الاسكندريه": "alexandria", "اسكندريه": "alexandria", "الاسكندرية": "alexandria", "اسكندرية": "alexandria", "alex": "alexandria", "alexandria": "الاسكندرية",
@@ -832,11 +826,11 @@ HELP = """❓ المساعدة - كل أيقونة بتعمل ايه:
 ⚖️ UOM: اكتب uom كيلو او uom KG او uom طن
 📄 مستندات: اكتب تزيل 1
 🧮 حسبة الرسوم التقريبية: دوس عليها - البوت هيسألك مبلغ الفاتورة - نوع العملة - التعاقد - فئة البند - سعر التحويل
+📦 حسبة CBM: دوس عليها - البوت هيسألك الطول والعرض والارتفاع والوزن وعدد الكراتين
 🕐 اخر بحث: بيجيب اخر حاجة بحثت عنها
 القايمة: اكتب menu
 """
 
-# ===== NEW: حسبة الرسوم التقريبية - من ملف رسوم100.xlsx - المعادلة محفوظة جوه الكود =====
 CALC_CONTRACTS = ["CIF", "C&F", "FCA", "FOB 12.5%", "FOB نولون", "EXW 12.5%", "EXW نولون", "FOB Free"]
 CALC_CURS = ["USD", "EUR", "GBP", "SAR", "AED", "CNY", "JPY", "EGP"]
 def CALC_KB_CONTRACT():
@@ -878,6 +872,76 @@ def CALC_TXT(d, r):
     t += "━━━━━━━━━━━━━━\n"
     t += f"✅ إجمالي الرسوم التقريبية: {r['total']:,.2f} جنيه\n"
     t += "\n⚠️ حسبة تقريبية"
+    return t
+
+# ===== NEW: حسبة CBM - اضافة فقط =====
+CBM_CONTAINERS = [("20FT", 590, 235, 239), ("40FT", 1203, 235, 239), ("40FT HC", 1204, 235, 269)]
+def CBM_KB_UNIT():
+    return MK([[B("📐 بالمتري - سم / كجم", "cbm_unit_cm"), B("📏 بالقدم - بوصة / رطل", "cbm_unit_in")], [B("❌ الغاء", "m_main")]])
+def CBM_KB_DIV():
+    return MK([[B("🚢 بحري / بري - قسمة على 5000", "cbm_div_5000"), B("✈️ جوي - قسمة على 6000", "cbm_div_6000")], [B("❌ الغاء", "m_main")]])
+def CBM_RESET(ctx):
+    ctx.user_data["cbm"] = {"step": "unit", "unit": "cm", "div": 5000, "l": 0, "w": 0, "h": 0, "wt": 0, "qty": 0}
+    ctx.user_data["cbm_on"] = True
+def CBM_DO(d):
+    if d["unit"] == "cm":
+        vol_one = d["l"] * d["w"] * d["h"] / 1000000
+        vol_w_one = d["l"] * d["w"] * d["h"] / d["div"]
+    else:
+        vol_one = d["l"] * d["w"] * d["h"] / 1728
+        vol_w_one = d["l"] * d["w"] * d["h"] / d["div"] * 2.20462
+    total_vol = vol_one * d["qty"]
+    total_w = d["wt"] * d["qty"]
+    total_vol_w = vol_w_one * d["qty"]
+    chargeable = max(total_w, total_vol_w)
+    cont_txt = []
+    for name, cl, cw, ch in CBM_CONTAINERS:
+        if d["unit"] == "cm":
+            cont_vol = cl * cw * ch / 1000000
+        else:
+            cont_vol = (cl/2.54) * (cw/2.54) * (ch/2.54) / 1728
+        if vol_one > 0:
+            approx = int(cont_vol / vol_one * 0.85)
+            approx_max = int(cont_vol / vol_one * 0.95)
+            cont_txt.append(f"{name}: تقريباً {approx} - {approx_max} كرتونة")
+    courier = []
+    if d["unit"] == "cm":
+        max_side = max(d["l"], d["w"], d["h"])
+        for comp, max_w, max_len in [("DHL", 70, 120), ("FedEx", 68, 119), ("UPS", 70, 108)]:
+            ow = "❌ Over Weight" if d["wt"] > max_w else "✅ وزن مقبول"
+            osz = "❌ Over Size" if max_side > max_len else "✅ مقاس مقبول"
+            courier.append(f"{comp}: {ow} | {osz}")
+    else:
+        max_side = max(d["l"], d["w"], d["h"])
+        for comp, max_w, max_len in [("DHL", 154, 47), ("FedEx", 150, 47), ("UPS", 154, 42)]:
+            ow = "❌ Over Weight" if d["wt"] > max_w else "✅ وزن مقبول"
+            osz = "❌ Over Size" if max_side > max_len else "✅ مقاس مقبول"
+            courier.append(f"{comp}: {ow} | {osz}")
+    return {"vol_one": vol_one, "total_vol": total_vol, "total_w": total_w, "total_vol_w": total_vol_w, "chargeable": chargeable, "cont": cont_txt, "courier": courier}
+def CBM_TXT(d, r):
+    unit_vol = "CBM" if d["unit"] == "cm" else "CFT"
+    unit_w = "كجم" if d["unit"] == "cm" else "رطل"
+    unit_l = "سم" if d["unit"] == "cm" else "بوصة"
+    t = "📦 حسبة CBM\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += f"📐 المقاس: {d['l']} × {d['w']} × {d['h']} {unit_l}\n"
+    t += f"⚖️ وزن الكرتونة: {d['wt']} {unit_w}\n"
+    t += f"📦 عدد الكراتين: {d['qty']}\n"
+    t += f"📏 القسمة الحجمية: / {d['div']}\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += f"📦 حجم الكرتونة: {r['vol_one']:.4f} {unit_vol}\n"
+    t += f"📦 الحجم الكلي: {r['total_vol']:.2f} {unit_vol}\n"
+    t += f"⚖️ الوزن الكلي: {r['total_w']:,.2f} {unit_w}\n"
+    t += f"⚖️ الوزن الحجمي الكلي: {r['total_vol_w']:,.2f} {unit_w}\n"
+    t += f"✅ الوزن المحاسب عليه: {r['chargeable']:,.2f} {unit_w} (الأعلى)\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += "🚢 الكونتينرات:\n"
+    for c in r["cont"]:
+        t += c + "\n"
+    t += "━━━━━━━━━━━━━━\n"
+    t += "✈️ شحن سريع:\n"
+    for c in r["courier"]:
+        t += c + "\n"
     return t
 
 def LU():
@@ -980,7 +1044,6 @@ def FREF(kind, it):
         return f"{it['name']}\n{ar}\nالكود: {it['code']}"
     return f"{it['name']}\nالكود: {it['code']}"
 
-# === NEW: دوال مساعدة للمستندات - للادمن فقط ===
 def DEL_ONE_DOC(num):
     ds = LJ("docs_index.json", [])
     new_ds = []
@@ -1018,13 +1081,9 @@ def LIST_DOCS_TXT():
     t += "\nاكتب: تزيل 1 عشان تنزل المستند"
     return t
 
-# ===== NEW: رسالة تعريف الاشتراك قبل القبول - 150 جم في الشهر =====
 SUB_INFO_TXT = """👋 أهلا بيك في Captain Emad Customs Bot
-
 البوت ده خدمة مدفوعة باشتراك رمزي 💰
-
 الاشتراك: 150 جنيه في الشهر فقط
-
 بيوفرلك:
 🚢 توكيلات وايميلات
 📜 التعريفة الجمركية
@@ -1032,7 +1091,6 @@ SUB_INFO_TXT = """👋 أهلا بيك في Captain Emad Customs Bot
 🏢 بيانات الشركات
 🔄 Rotation
 🧮 حسبة الرسوم الجمركية
-
 لو حابب تشترك، ابعتلنا هنا وهنبعتلك طريقة الدفع ✅
 ولو مش حابب، مفيش مشكلة نورتنا ❤️
 """
@@ -1325,7 +1383,6 @@ async def BTN(update, ctx):
     if not OK(uid):
         await q.message.reply_text("⏳ استنى الادمن يقبلك الاول، ابعت /start")
         return
-    # === NEW: ازرار ادارة المستندات - للادمن فقط ===
     if d == "docs_add":
         if str(uid) != str(ADM):
             await q.message.reply_text("❌ اضافة المستندات للادمن بس")
@@ -1357,9 +1414,9 @@ async def BTN(update, ctx):
         return
     if d == "m_main":
         ctx.user_data["calc_on"] = False
+        ctx.user_data["cbm_on"] = False
         await q.message.reply_text("القايمة:", reply_markup=MAIN_KB())
         return
-    # ===== NEW: حسبة الرسوم =====
     if d == "m_calc":
         CALC_RESET(ctx)
         await q.message.reply_text("🧮 حسبة الرسوم التقريبية\n\nاكتب مبلغ الفاتورة بالعملة الخارجية:\nمثال: 67500", reply_markup=MK([[B("❌ الغاء", "m_main")]]))
@@ -1375,6 +1432,23 @@ async def BTN(update, ctx):
         ctx.user_data["calc"]["cur"] = c
         ctx.user_data["calc"]["step"] = "contract"
         await q.message.reply_text(f"💱 العملة: {c}\n\nاختار التعاقد:", reply_markup=CALC_KB_CONTRACT())
+        return
+    if d == "m_cbm":
+        CBM_RESET(ctx)
+        await q.message.reply_text("📦 حسبة CBM\n\nاختار الوحدة:", reply_markup=CBM_KB_UNIT())
+        return
+    if d.startswith("cbm_unit_"):
+        u = "cm" if d.endswith("_cm") else "in"
+        ctx.user_data["cbm"]["unit"] = u
+        ctx.user_data["cbm"]["step"] = "div"
+        await q.message.reply_text("اختار نوع الشحن عشان الوزن الحجمي:", reply_markup=CBM_KB_DIV())
+        return
+    if d.startswith("cbm_div_"):
+        div = int(d.replace("cbm_div_", ""))
+        ctx.user_data["cbm"]["div"] = div
+        ctx.user_data["cbm"]["step"] = "l"
+        unit_l = "سم" if ctx.user_data["cbm"]["unit"] == "cm" else "بوصة"
+        await q.message.reply_text(f"📐 دخل الطول بالـ {unit_l}:\nمثال: 60")
         return
     if d == "m_lines":
         await SEND(q, ctx, "line", 0, "")
@@ -1603,7 +1677,60 @@ async def HANDLE(update, ctx):
     if not OK(uid):
         await update.message.reply_text("⏳ استنى الادمن يقبلك الاول، ابعت /start")
         return
-    # ===== NEW: حسبة الرسوم - لازم تكون قبل اي بحث تاني =====
+    if ctx.user_data.get("cbm_on"):
+        cbm = ctx.user_data.get("cbm", {})
+        step = cbm.get("step", "unit")
+        txt2 = text.strip().replace(",", "").replace("جنيه", "").replace("ج", "")
+        if NA(text) in ["الغاء", "cancel", "menu", "القايمه", "القايمة"]:
+            ctx.user_data["cbm_on"] = False
+            await update.message.reply_text("اتلغت حسبة CBM", reply_markup=MAIN_KB())
+            return
+        if step in ["unit", "div"]:
+            await update.message.reply_text("اختار من الزراير اللي فوق 👆", reply_markup=CBM_KB_UNIT() if step == "unit" else CBM_KB_DIV())
+            return
+        try:
+            val = float(txt2)
+        except:
+            val = None
+        unit_l = "سم" if cbm.get("unit") == "cm" else "بوصة"
+        unit_w = "كجم" if cbm.get("unit") == "cm" else "رطل"
+        if step == "l":
+            if val is None or val <= 0:
+                await update.message.reply_text(f"اكتب الطول صح بالـ {unit_l}، مثال: 60")
+                return
+            cbm["l"] = val; cbm["step"] = "w"
+            await update.message.reply_text(f"📐 الطول: {val}\n\nدخل العرض بالـ {unit_l}:")
+            return
+        if step == "w":
+            if val is None or val <= 0:
+                await update.message.reply_text(f"اكتب العرض صح بالـ {unit_l}")
+                return
+            cbm["w"] = val; cbm["step"] = "h"
+            await update.message.reply_text(f"📐 العرض: {val}\n\nدخل الارتفاع بالـ {unit_l}:")
+            return
+        if step == "h":
+            if val is None or val <= 0:
+                await update.message.reply_text(f"اكتب الارتفاع صح بالـ {unit_l}")
+                return
+            cbm["h"] = val; cbm["step"] = "wt"
+            await update.message.reply_text(f"📐 الارتفاع: {val}\n\nدخل وزن الكرتونة الواحدة بالـ {unit_w}:")
+            return
+        if step == "wt":
+            if val is None or val <= 0:
+                await update.message.reply_text(f"اكتب وزن الكرتونة صح بالـ {unit_w}")
+                return
+            cbm["wt"] = val; cbm["step"] = "qty"
+            await update.message.reply_text(f"⚖️ الوزن: {val} {unit_w}\n\nدخل عدد الكراتين:")
+            return
+        if step == "qty":
+            if val is None or val <= 0:
+                await update.message.reply_text("اكتب عدد الكراتين صح، مثال: 100")
+                return
+            cbm["qty"] = int(val)
+            ctx.user_data["cbm_on"] = False
+            r = CBM_DO(cbm)
+            await update.message.reply_text(CBM_TXT(cbm, r), reply_markup=MAIN_KB())
+            return
     if ctx.user_data.get("calc_on"):
         calc = ctx.user_data.get("calc", {})
         step = calc.get("step", "inv")
