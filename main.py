@@ -843,7 +843,7 @@ def CBM_TXT(d, r):
     for c in r["courier"]:
         t += c + "\n"
     return t
-    def LU():
+ def LU():
     return LJ("users.json", {})
 def SU(u):
     SJ("users.json", u)
