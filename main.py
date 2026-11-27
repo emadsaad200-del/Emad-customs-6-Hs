@@ -422,7 +422,7 @@ def FT(t):
     x += "البند: " + t["code"] + "\n"
     x += "الضريبة: " + t["tax"]
     return x.strip()
-    F3 = "ايميلات_وارقام_توكيلات.xlsx"
+F3 = "ايميلات_وارقام_توكيلات.xlsx"
 if os.path.exists(F3):
     wb = openpyxl.load_workbook(F3, read_only=True)
     if "EMAILS" in wb.sheetnames:
