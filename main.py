@@ -422,7 +422,9 @@ def FT(t):
     x += "البند: " + t["code"] + "\n"
     x += "الضريبة: " + t["tax"]
     return x.strip()
-    F3 = "ايميلات_وارقام_توكيلات.xlsx" 
+
+# ===== FIX 426: F3 بره الدالة خالص، على أول السطر =====
+F3 = "ايميلات_وارقام_توكيلات.xlsx"
 if os.path.exists(F3):
     wb = openpyxl.load_workbook(F3, read_only=True)
     if "EMAILS" in wb.sheetnames:
@@ -735,7 +737,6 @@ def CALC_RESET(ctx):
 def CALC_DO(d):
     base = d["inv"] * d["rate"]
     contract = str(d.get("contract", "CIF"))
-    # تحويل FOB / EXW لـ CIF تقريبي
     if "12.5%" in contract:
         cif = base * 1.125
     elif "نولون" in contract:
@@ -784,7 +785,6 @@ def CBM_DO(d):
         vol_one = d["l"] * d["w"] * d["h"] / 1000000
         vol_w_one = d["l"] * d["w"] * d["h"] / d["div"]
     else:
-        # بالبوصة: الحجم بالقدم المكعب، والوزن الحجمي بالرطل
         vol_one = d["l"] * d["w"] * d["h"] / 1728
         if d["div"] == 6000:
             vol_w_one = d["l"] * d["w"] * d["h"] / 166
